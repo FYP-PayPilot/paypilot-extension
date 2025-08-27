@@ -1,49 +1,94 @@
 {
   "name": "paypilot",
   "displayName": "PayPilot",
-  "description": "Aims to streamline integration, reduce errors and improve developer experience ",
+  "description": "AI coding assistant with a chat side panel and apply changes",
   "version": "0.0.1",
+  "publisher": "paypilot",
   "engines": {
-    "vscode": "^1.103.0"
+    "vscode": "^1.88.0"
   },
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "paypilot.helloWorld",
-        "title": "Hello World"
+        "command": "paypilot.openChat",
+        "title": "PayPilot: Open Chat"
+      },
+      {
+        "command": "paypilot.setApiKey",
+        "title": "PayPilot: Set DeepSeek API Key"
       }
-    ]
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "PayPilot",
+      "properties": {
+        "paypilot.model": {
+          "type": "string",
+          "default": "deepseek-chat",
+          "description": "DeepSeek chat model to use"
+        },
+        "paypilot.apiBase": {
+          "type": "string",
+          "default": "https://api.deepseek.com",
+          "description": "Base URL for DeepSeek API"
+        },
+        "paypilot.apiKey": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Optional fallback if Secret Storage is not set. Prefer running **PayPilot: Set DeepSeek API Key**."
+        },
+        "paypilot.maxContextChars": {
+          "type": "number",
+          "default": 12000,
+          "description": "Maximum characters of editor content to include as context"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "paypilotSidebar",
+          "title": "PayPilot",
+          "icon": "$(credit-card)"
+        }
+      ]
+    },
+    "views": {
+      "paypilotSidebar": [
+        {
+          "id": "paypilotChatView",
+          "name": "Chat",
+          "type": "webview",
+          "icon": "$(credit-card)"
+        }
+      ]
+    }
   },
   "scripts": {
-    "vscode:prepublish": "npm run package",
-    "compile": "npm run check-types && npm run lint && node esbuild.js",
-    "watch": "npm-run-all -p watch:*",
+    "vscode:prepublish": "node esbuild.js --production",
+    "compile": "tsc -watch -p ./",
+    "build": "node esbuild.js",
     "watch:esbuild": "node esbuild.js --watch",
-    "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
-    "compile-tests": "tsc -p . --outDir out",
-    "watch-tests": "tsc -p . -w --outDir out",
-    "pretest": "npm run compile-tests && npm run compile && npm run lint",
-    "check-types": "tsc --noEmit",
-    "lint": "eslint src",
-    "test": "vscode-test"
+    "lint": "echo \"Add your linter here\""
   },
   "devDependencies": {
-    "@types/vscode": "^1.103.0",
-    "@types/mocha": "^10.0.10",
-    "@types/node": "22.x",
-    "@typescript-eslint/eslint-plugin": "^8.39.0",
-    "@typescript-eslint/parser": "^8.39.0",
-    "eslint": "^9.32.0",
-    "esbuild": "^0.25.8",
-    "npm-run-all": "^4.1.5",
-    "typescript": "^5.9.2",
-    "@vscode/test-cli": "^0.0.11",
-    "@vscode/test-electron": "^2.5.2"
+    "@types/node": "^20.12.7",
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "@types/vscode": "^1.88.0",
+    "esbuild": "^0.25.9",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "typescript": "^5.6.2"
+  },
+  "dependencies": {
+    "@types/react": "^19.1.11",
+    "@types/react-dom": "^19.1.7",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
   }
 }

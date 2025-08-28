@@ -6,27 +6,23 @@
 export interface ChatAskMessage {
   type: 'chat:ask';
   prompt: string;
+  mode: 'agent' | 'ask';
 }
 
-export interface EditorApplyMessage {
-  type: 'editor:applyEdit';
-  payload: {
-    mode: 'selection' | 'file';
-    code: string;
-  };
+export interface ChatStopMessage {
+  type: 'chat:stop';
 }
 
-export interface EditorCreateFileMessage {
-  type: 'editor:createFile';
-  payload: {
-    code: string;
-  };
+export interface DiffActionMessage {
+  type: 'diff:action';
+  action: 'keep' | 'undo';
+  lineNumber?: number; // undefined means all changes
 }
 
 export type WebviewToExtensionMessage = 
   | ChatAskMessage 
-  | EditorApplyMessage 
-  | EditorCreateFileMessage;
+  | ChatStopMessage
+  | DiffActionMessage;
 
 // Messages sent from extension to webview
 export interface ChatStreamMessage {
@@ -44,15 +40,20 @@ export interface ChatErrorMessage {
   error: string;
 }
 
-export interface EditorAppliedMessage {
-  type: 'editor:applied';
+export interface ChatStoppedMessage {
+  type: 'chat:stopped';
+}
+
+export interface DiffAppliedMessage {
+  type: 'diff:applied';
 }
 
 export type ExtensionToWebviewMessage = 
   | ChatStreamMessage 
   | ChatDoneMessage 
   | ChatErrorMessage 
-  | EditorAppliedMessage;
+  | ChatStoppedMessage
+  | DiffAppliedMessage;
 
 // Chat message for UI
 export interface ChatMessage {
@@ -67,6 +68,5 @@ export interface ChatMessage {
 export interface ChatState {
   messages: ChatMessage[];
   isLoading: boolean;
-  lastAssistantMessage: string;
-  canApplyCode: boolean;
+  mode: 'agent' | 'ask';
 }

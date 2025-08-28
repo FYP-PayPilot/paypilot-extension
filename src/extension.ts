@@ -384,14 +384,14 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize chat view provider
   const chatProvider = new ChatViewProvider(context);
   
-  // Register webview view provider for chat panel
+  // Register webview view provider for chat panel into extension context
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('paypilotChatView', chatProvider, { 
       webviewOptions: { retainContextWhenHidden: true } // Keep chat state when hidden
     })
   );
 
-  // Register command to open chat view
+  // Register command to open chat view into extension context
   context.subscriptions.push(
     vscode.commands.registerCommand('paypilot.openChat', async () => {
       await vscode.commands.executeCommand('paypilotChatView.focus'); // Focus chat panel

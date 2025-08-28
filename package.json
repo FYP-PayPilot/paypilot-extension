@@ -20,6 +20,18 @@
       {
         "command": "paypilot.setApiKey",
         "title": "PayPilot: Set DeepSeek API Key"
+      },
+      {
+        "command": "paypilot.openDiff",
+        "title": "PayPilot: View Diff"
+      },
+      {
+        "command": "paypilot.acceptChanges",
+        "title": "PayPilot: Accept Changes"
+      },
+      {
+        "command": "paypilot.rejectChanges",
+        "title": "PayPilot: Reject Changes"
       }
     ],
     "configuration": {
@@ -70,10 +82,10 @@
   },
   "scripts": {
     "vscode:prepublish": "node esbuild.js --production",
-    "compile": "tsc -watch -p ./",
     "build": "node esbuild.js",
     "watch:esbuild": "node esbuild.js --watch",
-    "lint": "echo \"Add your linter here\""
+    "watch:tsc": "tsc -watch -p ./",
+    "compile": "tsc -p ./"
   },
   "devDependencies": {
     "@types/node": "^20.12.7",
@@ -81,14 +93,10 @@
     "@types/react-dom": "^18.2.25",
     "@types/vscode": "^1.88.0",
     "esbuild": "^0.25.9",
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
     "typescript": "^5.6.2"
   },
   "dependencies": {
-    "@types/react": "^19.1.11",
-    "@types/react-dom": "^19.1.7",
-    "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
   }
 }

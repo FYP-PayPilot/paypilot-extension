@@ -9,6 +9,7 @@ type AskArgs = {
   baseUrl: string;                          // Base URL for the DeepSeek API endpoint
   model: string;                            // Model name (e.g., 'deepseek-chat', 'deepseek-coder')
   prompt: string;                           // User's input message/question
+  abortSignal?: AbortSignal;                // Optional signal for cancelling the request
   onToken: (token: string) => void;         // Callback for each streaming token received
   onDone: (full: string) => void;           // Callback when the complete response is finished
   onError: (err: unknown) => void;          // Callback for handling any errors that occur
@@ -42,7 +43,9 @@ export async function resolveApiKey(): Promise<string | undefined> {
  */
 export async function askDeepSeek(args: AskArgs): Promise<void> {
   // Destructure all required parameters from the arguments object
-  const { apiKey, baseUrl, model, prompt, onToken, onDone, onError } = args;
+  const { apiKey, baseUrl, model, prompt, abortSignal, onToken, onDone, onError } = args;
+  
+  let fullResponse = ''; // Declare in outer scope for access in catch block
   
   try {
     // Construct the API endpoint URL, ensuring no trailing slashes
@@ -62,7 +65,8 @@ export async function askDeepSeek(args: AskArgs): Promise<void> {
         messages: [{ role: 'user', content: prompt }], // User's message in chat format
         stream: true,                         // Enable streaming response
         temperature: 0.2                      // Low temperature for more focused responses
-      })
+      }),
+      signal: abortSignal                     // Include abort signal for cancellation
     });
 
     // Check if the API request was successful
@@ -78,7 +82,7 @@ export async function askDeepSeek(args: AskArgs): Promise<void> {
     // Set up streaming response processing
     const reader = response.body.getReader();           // Get readable stream reader
     const decoder = new TextDecoder('utf-8');          // Decoder for converting bytes to text
-    let fullResponse = '';                              // Accumulator for the complete response
+    // fullResponse is already declared in outer scope
 
     // Process the streaming response in chunks
     while (true) {
@@ -138,7 +142,13 @@ export async function askDeepSeek(args: AskArgs): Promise<void> {
     onDone(fullResponse);
 
   } catch (error) {
-    // Pass any errors to the error callback for handling by the caller
-    onError(error);
+    // Handle different types of errors appropriately
+    if (error instanceof Error && error.name === 'AbortError') {
+      // Request was cancelled - this is expected behavior, not an error
+      onDone(fullResponse || 'Generation stopped by user');
+    } else {
+      // Pass other errors to the error callback for handling by the caller
+      onError(error);
+    }
   }
 }

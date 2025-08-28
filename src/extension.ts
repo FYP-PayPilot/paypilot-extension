@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { ChatViewProvider } from './panels/ChatViewProvider';
-import { askDeepSeek } from './services/deepseek';
+import { askDeepSeek, resolveApiKey } from './services/deepseek';
+import { ApiKeyManager } from './services/apiKeyManager';
 
 // Global state for VS Code native diff management
 let originalContent: string = ''; // Content before AI modifications
@@ -307,15 +308,23 @@ async function rejectChanges() {
 }
 
 /**
- * Resolves API key from VS Code configuration
+ * Resolves API key from secure storage or VS Code configuration fallback
  */
-async function resolveDeepSeekApiKey(): Promise<{ key?: string; source: string }> {
-  const cfg = vscode.workspace.getConfiguration('paypilot');
-  const fromSetting = String(cfg.get('apiKey') || '').trim();
+async function resolveDeepSeekApiKey(context: vscode.ExtensionContext): Promise<{ key?: string; source: string }> {
+  const apiKey = await resolveApiKey(context);
   
-  if (fromSetting) {
-    console.log('Found API key in VS Code settings');
-    return { key: fromSetting, source: 'VS Code settings' }; // Return configured API key
+  if (apiKey) {
+    // Check if it came from secure storage first
+    const apiKeyManager = new ApiKeyManager(context);
+    const secureApiKey = await apiKeyManager.getApiKey('deepseek');
+    
+    if (secureApiKey) {
+      console.log('Found API key in secure storage');
+      return { key: apiKey, source: 'Secure Storage' };
+    } else {
+      console.log('Found API key in VS Code settings');
+      return { key: apiKey, source: 'VS Code settings' };
+    }
   }
 
   console.log('No API key found. Please set it using "PayPilot: Set DeepSeek API Key" command');
@@ -327,6 +336,12 @@ async function resolveDeepSeekApiKey(): Promise<{ key?: string; source: string }
  */
 export async function activate(context: vscode.ExtensionContext) {
   console.log('PayPilot extension is active (VS Code API version)');
+
+  // Initialize API key manager
+  const apiKeyManager = new ApiKeyManager(context);
+  
+  // Register API key management commands
+  ApiKeyManager.registerCommands(context, apiKeyManager);
 
   // Initialize chat view provider
   const chatProvider = new ChatViewProvider(context);
@@ -342,25 +357,6 @@ export async function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand('paypilot.openChat', async () => {
       await vscode.commands.executeCommand('paypilotChatView.focus'); // Focus chat panel
-    })
-  );
-
-  // Register command to set API key
-  context.subscriptions.push(
-    vscode.commands.registerCommand('paypilot.setApiKey', async () => {
-      const value = await vscode.window.showInputBox({
-        prompt: 'Enter your DeepSeek API key',
-        password: true, // Hide input for security
-        ignoreFocusOut: true
-      });
-      
-      if (!value) {
-        return; // User cancelled input
-      }
-      
-      const cfg = vscode.workspace.getConfiguration('paypilot');
-      await cfg.update('apiKey', value, vscode.ConfigurationTarget.Global); // Save globally
-      vscode.window.showInformationMessage('DeepSeek API key saved to settings');
     })
   );
 
@@ -384,7 +380,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (msg?.type === 'chat:ask') {
       try {
         // Resolve API key from configuration
-        const { key: apiKey } = await resolveDeepSeekApiKey();
+        const { key: apiKey } = await resolveDeepSeekApiKey(context);
         if (!apiKey) {
           panel.postMessage({ 
             type: 'chat:error', 

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { ApiKeyManager } from './apiKeyManager';
 
 /**
  * Arguments for the DeepSeek API request
@@ -16,16 +17,25 @@ type AskArgs = {
 };
 
 /**
- * Resolves the DeepSeek API key from VS Code workspace settings
+ * Resolves the DeepSeek API key from secure storage or settings fallback
  * 
- * This function retrieves the API key that users configure in their VS Code settings.
+ * This function first tries to get the API key from secure storage, then falls back
+ * to VS Code settings if not found in secure storage.
+ * @param context VS Code extension context for accessing secure storage
  * @returns Promise<string | undefined> The API key if configured, undefined otherwise
  */
-export async function resolveApiKey(): Promise<string | undefined> {
-  // Get the paypilot configuration section from VS Code settings
-  const config = vscode.workspace.getConfiguration('paypilot');
+export async function resolveApiKey(context?: vscode.ExtensionContext): Promise<string | undefined> {
+  // First try secure storage if context is available
+  if (context) {
+    const apiKeyManager = new ApiKeyManager(context);
+    const secureApiKey = await apiKeyManager.getApiKey('deepseek');
+    if (secureApiKey) {
+      return secureApiKey;
+    }
+  }
   
-  // Retrieve the deepseekApiKey setting value
+  // Fallback to VS Code settings
+  const config = vscode.workspace.getConfiguration('paypilot');
   return config.get<string>('deepseekApiKey');
 }
 

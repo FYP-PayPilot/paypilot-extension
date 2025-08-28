@@ -22,6 +22,14 @@
         "title": "PayPilot: Set DeepSeek API Key"
       },
       {
+        "command": "paypilot.removeApiKey",
+        "title": "PayPilot: Remove API Key"
+      },
+      {
+        "command": "paypilot.checkApiKeys",
+        "title": "PayPilot: Check API Keys"
+      },
+      {
         "command": "paypilot.openDiff",
         "title": "PayPilot: View Diff"
       },

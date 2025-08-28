@@ -18,6 +18,9 @@ let rejectButton: vscode.StatusBarItem | undefined; // "Reject Changes" button
 // AI generation cancellation
 let currentAbortController: AbortController | null = null; // For cancelling ongoing AI requests
 
+// Diff view management
+let diffViewColumn: vscode.ViewColumn | undefined; // Track if diff view is open
+
 /**
  * Content provider for original (pre-modification) content (read-only)
  * This provides the "left" side of the diff using a custom URI scheme
@@ -165,12 +168,33 @@ async function applyChangesWithVSCodeDiff(newContent: string) {
 }
 
 /**
- * Open side-by-side diff view using VS Code's native diff editor
+ * Toggle side-by-side diff view using VS Code's native diff editor
  */
 async function openSideBySideDiff() {
   if (!currentDocumentUri || !originalContent) {
     vscode.window.showErrorMessage('No changes to diff');
     return; // No diff state available
+  }
+
+  // Check if diff is already open by trying to close it first
+  if (diffViewColumn !== undefined) {
+    // Close the diff view by focusing on it and closing the tab
+    try {
+      await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
+      diffViewColumn = undefined;
+      
+      // Update button text to indicate it will open diff
+      if (diffButton) {
+        diffButton.text = "$(diff) View Diff";
+        diffButton.tooltip = 'View side-by-side diff of PayPilot changes';
+      }
+      
+      console.log('[PayPilot] Diff view closed');
+      return;
+    } catch (error) {
+      console.log('[PayPilot] Could not close diff view, proceeding to open new one');
+      diffViewColumn = undefined;
+    }
   }
 
   console.log('[PayPilot] Opening side-by-side diff');
@@ -190,6 +214,16 @@ async function openSideBySideDiff() {
       'PayPilot Changes (Original ↔ Modified)', // Diff tab title
       { viewColumn: vscode.ViewColumn.Beside } // Open in new column
     );
+    
+    // Track that diff is now open
+    diffViewColumn = vscode.ViewColumn.Beside;
+    
+    // Update button text to indicate it will close diff
+    if (diffButton) {
+      diffButton.text = "$(x) Close Diff";
+      diffButton.tooltip = 'Close diff view';
+    }
+    
     console.log('[PayPilot] Diff editor opened successfully');
   } catch (error) {
     console.error('[PayPilot] Error opening diff editor:', error);
@@ -244,6 +278,10 @@ function cleanupStatusBarItems() {
     rejectButton.dispose(); // Remove "Reject Changes" button
     rejectButton = undefined;
   }
+  
+  // Reset diff view tracking
+  diffViewColumn = undefined;
+  
   console.log('[PayPilot] Status bar items cleaned up');
 }
 

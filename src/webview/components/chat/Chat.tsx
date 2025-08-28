@@ -1,8 +1,7 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from '../../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
-import { ActionButtons } from './ActionButtons';
 
 /**
  * Main chat component that orchestrates the entire chat interface
@@ -11,14 +10,26 @@ export const Chat: React.FC = () => {
   const {
     messages,
     isLoading,
-    canApplyCode,
+    mode,
     sendMessage,
-    applyToSelection,
-    replaceFile,
-    createNewFile
+    stopGeneration,
+    setMode
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // TODO: Get selected model from extension settings
+  const [selectedModel, setSelectedModel] = useState('deepseek-chat');
+
+  /**
+   * Handle model change
+   * TODO: Implement model switching in the extension
+   */
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+    // TODO: Send model change message to extension
+    // postMessage({ type: 'model:change', model });
+  };
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -34,11 +45,11 @@ export const Chat: React.FC = () => {
         {messages.length === 0 ? (
           <div className="empty-state">
             <div className="empty-icon">
-              <BubbleStarIcon />
+              <LightningIcon />
             </div>
             <div className="empty-title">Ready to help with your code</div>
             <div className="empty-description">
-              Ask questions about your code, get explanations, or request refactoring help.
+              Switch to Agent mode to make changes, or Ask mode to brainstorm.
             </div>
           </div>
         ) : (
@@ -51,17 +62,17 @@ export const Chat: React.FC = () => {
         )}
       </div>
 
-      {/* Input and actions */}
+      {/* Input with send/stop functionality and controls footer */}
       <div className="chat-footer">
-        <ActionButtons
-          canApplyCode={canApplyCode}
-          onApplyToSelection={applyToSelection}
-          onReplaceFile={replaceFile}
-          onCreateNewFile={createNewFile}
-        />
         <ChatInput
           onSendMessage={sendMessage}
-          disabled={isLoading}
+          onStopGeneration={stopGeneration}
+          disabled={false}
+          isLoading={isLoading}
+          mode={mode}
+          onModeChange={setMode}
+          selectedModel={selectedModel}
+          onModelChange={handleModelChange}
         />
       </div>
     </div>
@@ -69,7 +80,7 @@ export const Chat: React.FC = () => {
 };
 
 // Clean lightning bolt icon
-const BubbleStarIcon: React.FC = () => (
+const LightningIcon: React.FC = () => (
   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" className="welcome-icon">
     <path 
       d="M13 2L4.09 12.97A1 1 0 0 0 5 14.5h4.5l-1.5 7.5 8.91-10.97A1 1 0 0 0 16 9.5h-4.5L13 2z" 

@@ -14,6 +14,9 @@ let diffButton: vscode.StatusBarItem | undefined; // "View Diff" button
 let acceptButton: vscode.StatusBarItem | undefined; // "Accept Changes" button
 let rejectButton: vscode.StatusBarItem | undefined; // "Reject Changes" button
 
+// AI generation cancellation
+let currentAbortController: AbortController | null = null; // For cancelling ongoing AI requests
+
 /**
  * Content provider for original (pre-modification) content (read-only)
  * This provides the "left" side of the diff using a custom URI scheme
@@ -462,17 +465,23 @@ export async function activate(context: vscode.ExtensionContext) {
 
         let fullResponse = ''; // Accumulate streaming response
 
+        // Store the current request for potential cancellation
+        const abortController = new AbortController();
+        currentAbortController = abortController;
+
         // Make API call to DeepSeek
         await askDeepSeek({
           apiKey,
           baseUrl: String(cfg.get('apiBase') || 'https://api.deepseek.com'), // API endpoint
           model: String(cfg.get('model') || 'deepseek-chat'), // AI model
           prompt: composed,
+          abortSignal: abortController.signal,
           onToken: (t) => {
             fullResponse += t; // Build complete response
             panel.postMessage({ type: 'chat:stream', token: t }); // Stream to UI
           },
           onDone: async (full) => {
+            currentAbortController = null; // Clear the controller
             panel.postMessage({ type: 'chat:done', text: full }); // Notify UI completion
             
             // If in agent mode and we have code, apply it using VS Code's native diff
@@ -487,20 +496,31 @@ export async function activate(context: vscode.ExtensionContext) {
               }
             }
           },
-          onError: (err) => panel.postMessage({ 
-            type: 'chat:error', 
-            error: err instanceof Error ? err.message : String(err) // Send error to UI
-          })
+          onError: (err) => {
+            currentAbortController = null; // Clear the controller
+            panel.postMessage({ 
+              type: 'chat:error', 
+              error: err instanceof Error ? err.message : String(err) // Send error to UI
+            });
+          }
         });
 
       } catch (error) {
+        currentAbortController = null; // Clear the controller on any error
         console.error('Error in chat:ask handler:', error);
         panel.postMessage({
           type: 'chat:error',
           error: error instanceof Error ? error.message : 'An unknown error occurred'
         });
       }
-    } // End of chat:ask message handling
+    } else if (msg?.type === 'chat:stop') {
+      // Handle stop generation request
+      if (currentAbortController) {
+        currentAbortController.abort(); // Cancel the current request
+        currentAbortController = null;
+        panel.postMessage({ type: 'chat:stopped' }); // Notify UI that generation was stopped
+      }
+    } // End of message handling
   });
 }
 

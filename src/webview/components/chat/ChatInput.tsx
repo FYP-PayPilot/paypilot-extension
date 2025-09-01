@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import { useVSCode } from '../../context/VSCodeContext';
+import React, { useEffect, useState } from 'react';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
 import { IoSend, IoStop } from 'react-icons/io5';
 import { HiSparkles, HiChevronDown } from 'react-icons/hi2';
 import { BsQuestionLg } from 'react-icons/bs';
+import { FcAbout } from "react-icons/fc";
 
 interface ChatInputProps {
   onSendMessage: (message: string, mode: 'agent' | 'ask') => void;
@@ -43,7 +45,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   selectedModel,
   onModelChange
 }) => {
+  const { postMessage, onMessage } = useVSCode();
   const [inputValue, setInputValue] = useState('');
+  const [mcpEnabled, setMcpEnabled] = useState(false);
+  const [showMcpDropdown, setShowMcpDropdown] = useState(false);
+  const [mcpServers, setMcpServers] = useState<string[]>([]);
+  const [selectedServers, setSelectedServers] = useState<string[]>([]);
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      const msg = event.data;
+      if (msg.type === "mcp:servers") {
+        setMcpServers(msg.servers || []);
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, []);
 
   /**
    * Handle sending the message
@@ -160,7 +178,88 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           />
         </div>
       </div>
-    </div>
+      {/* MCP Servers Checkbox */}
+      <div className="mcp-checkbox-row" style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+        <input
+          type="checkbox"
+          id="enable-mcp"
+          style={{ marginRight: 6 }}
+          checked={mcpEnabled}
+          onChange={(e) => {
+        const checked = e.target.checked;
+        setMcpEnabled(checked);
+        postMessage({ type: 'mcp:toggle', enabled: checked });
+          }}
+        />
+        <label htmlFor="enable-mcp" style={{ marginRight: 8 }}>
+          Enable MCP servers
+        </label>
+        <button
+          type="button"
+          title="Show existing MCP servers in your VSCode config"
+          style={{
+        background: 'none',
+        border: 'none',
+        padding: 0,
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center'
+          }}
+          onClick={() => {
+        if (!showMcpDropdown) postMessage({ type: 'mcp:get'});
+        setShowMcpDropdown((prev) => !prev);
+          }}
+        >
+          <FcAbout size={16} />
+        </button>
+      </div>
+      {/* MCP Servers Dropdown */}
+      {showMcpDropdown && (
+        <div
+          style={{
+        border: '1px solid #ccc',
+        borderRadius: 6,
+        marginTop: 8,
+        padding: 8,
+        background: '#1e1e1e',
+        minWidth: 260,
+          }}
+        >
+          <label htmlFor="mcp-server-select" style={{ color: '#fff', marginBottom: 4, display: 'block' }}>
+        Select MCP server(s):
+          </label>
+          <select
+        id="mcp-server-select"
+        multiple
+        style={{
+          width: '100%',
+          padding: '4px 8px',
+          borderRadius: 4,
+          border: '1px solid #444',
+          background: '#222',
+          color: '#fff',
+          maxHeight: 120,
+          marginBottom: 8,
+        }}
+        value={selectedServers}
+        onChange={e => {
+          const options = Array.from(e.target.selectedOptions).map(opt => opt.value);
+          setSelectedServers(options);
+        }}
+          >
+        {mcpServers.length === 0 ? (
+          <option disabled value="">No MCP servers configured</option>
+        ) : (
+          mcpServers.map(server => (
+            <option key={server} value={server}>
+          {server}
+            </option>
+          ))
+        )}
+          </select>
+        </div>
+      )}
+        </div>
   );
 };
 

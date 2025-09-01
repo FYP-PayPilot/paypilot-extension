@@ -20,10 +20,21 @@ export interface DiffActionMessage {
   lineNumber?: number;                 // undefined means all changes
 }
 
+export interface McpToggleMessage {
+  type: 'mcp:toggle';
+  enabled: boolean;
+}
+
+export interface GetMcpServersMessage {
+  type: 'mcp:get';
+}
+
 export type WebviewToExtensionMessage = 
   | ChatAskMessage 
   | ChatStopMessage
-  | DiffActionMessage;
+  | DiffActionMessage
+  | GetMcpServersMessage
+  | McpToggleMessage;
 
 // Messages sent from extension to webview (streaming responses)
 export interface ChatStreamMessage {
@@ -49,12 +60,18 @@ export interface DiffAppliedMessage {
   type: 'diff:applied';
 }
 
+export interface McpServersResponse {
+  type: 'mcp:servers';
+  servers: string[];
+}
+
 export type ExtensionToWebviewMessage = 
   | ChatStreamMessage 
   | ChatDoneMessage 
   | ChatErrorMessage 
   | ChatStoppedMessage
-  | DiffAppliedMessage;
+  | DiffAppliedMessage
+  | McpServersResponse;
 
 // Chat message for UI state management
 export interface ChatMessage {

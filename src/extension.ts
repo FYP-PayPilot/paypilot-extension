@@ -21,6 +21,10 @@ let currentAbortController: AbortController | null = null; // For cancelling ong
 // Diff view management
 let diffViewColumn: vscode.ViewColumn | undefined; // Track if diff view is open
 
+// MCP management
+let enableMcp = false;
+let activeServers: string[] = [];
+
 /**
  * Content provider for original (pre-modification) content (read-only)
  * This provides the "left" side of the diff using a custom URI scheme
@@ -375,6 +379,28 @@ async function resolveDeepSeekApiKey(context: vscode.ExtensionContext): Promise<
 export async function activate(context: vscode.ExtensionContext) {
   console.log('PayPilot extension is active (VS Code API version)');
 
+  const config = vscode.workspace.getConfiguration('mcp');
+  const currentServers = config.get<{ [key: string]: any }>('servers', {});
+
+  console.log(`Enable MCP: ${enableMcp}`);
+  console.log('Configured MCP Servers (before):', Object.keys(currentServers));
+
+  // Inject context7 if it's not already present
+  const context7Id = 'context7';
+  const context7Server = {
+      type: 'http',
+      url: 'https://mcp.context7.com/mcp'
+  };
+
+  if (!currentServers[context7Id]) {
+      await config.update(
+          'servers',
+          { ...currentServers, [context7Id]: context7Server },
+          vscode.ConfigurationTarget.Global
+      );
+      console.log('context7 MCP server added to config.');
+  }
+
   // Initialize API key manager
   const apiKeyManager = new ApiKeyManager(context);
   
@@ -415,6 +441,21 @@ export async function activate(context: vscode.ExtensionContext) {
    * MESSAGE HANDLING SYSTEM - Processes chat messages and AI requests
    */
   chatProvider.onMessage(async (msg: any, panel: any) => {
+    if (msg.type === 'mcp:selectServers') {
+      activeServers = msg.servers || [];
+      console.log('User selected MCP servers:', activeServers);
+    }
+    if (msg?.type === 'mcp:toggle') {
+      enableMcp = !!msg.enabled;
+      console.log('[PayPilot] MCP enabled:', enableMcp);
+      return;
+    }
+    if (msg?.type === 'mcp:get') {
+      const config = vscode.workspace.getConfiguration('mcp');
+      const currentServers = config.get<{ [key: string]: any }>('servers', {});
+      panel.postMessage({ type: 'mcp:servers', servers: Object.keys(currentServers) });
+      return;
+    }
     if (msg?.type === 'chat:ask') {
       try {
         // Resolve API key from configuration

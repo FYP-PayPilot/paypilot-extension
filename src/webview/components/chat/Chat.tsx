@@ -16,8 +16,7 @@ export const Chat: React.FC = () => {
     setMode,
     availableModels,
     selectedModel,
-    onModelChange,
-    loadModels
+    onModelChange
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -65,7 +64,6 @@ export const Chat: React.FC = () => {
           selectedModel={selectedModel || ''}
           onModelChange={onModelChange}
           availableModels={availableModels}
-          onLoadModels={loadModels}
         />
       </div>
     </div>

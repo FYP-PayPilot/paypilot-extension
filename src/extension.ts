@@ -330,7 +330,9 @@ async function acceptChanges() {
  */
 async function rejectChanges() {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || !originalContent) return; // No editor or original content
+  if (!editor || !originalContent) {
+    return; // No editor or original content
+  }
 
   // Restore original content
   await editor.edit(editBuilder => {

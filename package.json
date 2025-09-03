@@ -93,19 +93,28 @@
     "build": "node esbuild.js",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc -watch -p ./",
-    "compile": "tsc -p ./"
+    "compile": "tsc -p ./",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "check-updates": "npm outdated",
+    "audit-security": "npm audit",
+    "update-patch": "npm update",
+    "test-build": "npm run build && npm run lint"
   },
   "devDependencies": {
-    "@types/node": "^20.12.7",
-    "@types/react": "^18.2.79",
-    "@types/react-dom": "^18.2.25",
-    "@types/vscode": "^1.88.0",
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@types/vscode": "^1.93.0",
+    "@typescript-eslint/eslint-plugin": "^8.5.0",
+    "@typescript-eslint/parser": "^8.5.0",
     "esbuild": "^0.25.9",
+    "eslint": "^9.10.0",
     "typescript": "^5.6.2"
   },
   "dependencies": {
-    "react": "^18.2.0",
-    "react-dom": "^18.2.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
     "react-icons": "^5.5.0"
   }
 }

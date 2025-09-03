@@ -5,41 +5,6 @@ import {
   sendLanguageModelRequest,
 } from "./services/languageModel";
 
-/**
- * Calculate proper diff statistics between two arrays of lines
- * Uses LCS-based approach for more accurate diff counting
- */
-function calculateDiffStats(
-  oldLines: string[],
-  newLines: string[]
-): { added: number; deleted: number } {
-  const m = oldLines.length;
-  const n = newLines.length;
-
-  // Create LCS table
-  const lcs: number[][] = Array(m + 1)
-    .fill(null)
-    .map(() => Array(n + 1).fill(0));
-
-  // Build LCS table
-  for (let i = 1; i <= m; i++) {
-    for (let j = 1; j <= n; j++) {
-      if (oldLines[i - 1] === newLines[j - 1]) {
-        lcs[i][j] = lcs[i - 1][j - 1] + 1;
-      } else {
-        lcs[i][j] = Math.max(lcs[i - 1][j], lcs[i][j - 1]);
-      }
-    }
-  }
-
-  // Calculate actual additions and deletions
-  const commonLines = lcs[m][n];
-  const added = n - commonLines;
-  const deleted = m - commonLines;
-
-  return { added, deleted };
-}
-
 // Global state for VS Code native diff management
 let originalContent: string = ""; // Content before AI modifications
 let currentDocumentUri: vscode.Uri | undefined; // File being tracked for diffs
@@ -60,7 +25,7 @@ let currentAbortController: AbortController | null = null; // For cancelling ong
 let diffViewColumn: vscode.ViewColumn | undefined; // Track if diff view is open
 
 /**
- * Content provider for original (pre-modification) content (read-only)
+ * TextDocumentContentProvider interface implementation
  * This provides the "left" side of the diff using a custom URI scheme
  */
 class OriginalContentProvider implements vscode.TextDocumentContentProvider {
@@ -94,7 +59,7 @@ class OriginalContentProvider implements vscode.TextDocumentContentProvider {
 }
 
 /**
- * Quick Diff Provider for inline diff indicators
+ * QuickDiffProvider interface implementation
  * This shows the green/red line indicators in the editor gutter
  */
 class PayPilotQuickDiffProvider implements vscode.QuickDiffProvider {
@@ -129,7 +94,47 @@ class PayPilotQuickDiffProvider implements vscode.QuickDiffProvider {
 }
 
 /**
+ * Calculate proper diff statistics between two arrays of lines
+ * Uses LCS-based approach for more accurate diff counting
+ * @param oldLines Lines from original content
+ * @param newLines Lines from modified content
+ * @returns Object containing added and deleted line counts
+ */
+function calculateDiffStats(
+  oldLines: string[],
+  newLines: string[]
+): { added: number; deleted: number } {
+  const m = oldLines.length;
+  const n = newLines.length;
+
+  // Create LCS table
+  const lcs: number[][] = Array(m + 1)
+    .fill(null)
+    .map(() => Array(n + 1).fill(0));
+
+  // Build LCS table
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (oldLines[i - 1] === newLines[j - 1]) {
+        lcs[i][j] = lcs[i - 1][j - 1] + 1;
+      } else {
+        lcs[i][j] = Math.max(lcs[i - 1][j], lcs[i][j - 1]);
+      }
+    }
+  }
+
+  // Calculate actual additions and deletions
+  const commonLines = lcs[m][n];
+  const added = n - commonLines;
+  const deleted = m - commonLines;
+
+  return { added, deleted };
+}
+
+/**
  * Apply changes using VS Code's native diff functionality
+ * This function creates a temporary file with the original content and overwrites the active editor's content with the new content.
+ * @param newContent The modified content to apply
  */
 async function applyChangesWithVSCodeDiff(newContent: string) {
   const editor = vscode.window.activeTextEditor;
@@ -690,17 +695,17 @@ export async function activate(context: vscode.ExtensionContext) {
                     ) {
                       const changes = [];
                       if (diffStats.added > 0)
-                        changes.push(
+                        {changes.push(
                           `${diffStats.added} line${
                             diffStats.added > 1 ? "s" : ""
                           } added`
-                        );
+                        );}
                       if (diffStats.deleted > 0)
-                        changes.push(
+                        {changes.push(
                           `${diffStats.deleted} line${
                             diffStats.deleted > 1 ? "s" : ""
                           } removed`
-                        );
+                        );}
                       explanation = `Updated code: ${changes.join(", ")}`;
                     }
 

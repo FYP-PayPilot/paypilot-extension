@@ -9,6 +9,7 @@ let currentDocumentUri: vscode.Uri | undefined; // File being tracked for diffs
 let sourceControl: vscode.SourceControl | undefined; // VS Code source control integration
 let originalContentProvider: OriginalContentProvider | undefined; // Custom URI content provider
 let quickDiffProvider: PayPilotQuickDiffProvider | undefined; // Gutter diff indicators provider
+let chatPanelVisible: boolean = false; // Track chat panel visibility
 
 // Status bar items management
 let diffButton: vscode.StatusBarItem | undefined; // "View Diff" button
@@ -232,9 +233,14 @@ async function openSideBySideDiff() {
 }
 
 /**
- * Show action buttons in status bar
+ * Show action buttons in status bar (only when chat panel is visible)
  */
 function showDiffActionButtons() {
+  // Only show buttons if chat panel is visible
+  if (!chatPanelVisible) {
+    return;
+  }
+
   // Clean up any existing buttons first
   cleanupStatusBarItems(); // Prevent duplicate buttons
 
@@ -368,6 +374,20 @@ export async function activate(context: vscode.ExtensionContext) {
       webviewOptions: { retainContextWhenHidden: true } // Keep chat state when hidden
     })
   );
+
+  // Track chat panel visibility
+  chatProvider.onVisibilityChange((visible) => {
+    chatPanelVisible = visible;
+    if (!visible) {
+      // Clean up PayPilot buttons when panel is hidden
+      cleanupStatusBarItems();
+    } else {
+      // Show buttons if there are existing changes when panel is reopened
+      if (currentDocumentUri && originalContent) {
+        showDiffActionButtons();
+      }
+    }
+  });
 
   // Auto-load models when extension starts to enable immediate use
   chatProvider.postMessage({ type: 'model:list-request' });

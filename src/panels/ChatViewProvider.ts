@@ -8,8 +8,16 @@ import { getWebviewHtml } from '../services/html';
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private listeners: Array<(msg: any, panel: vscode.Webview) => void> = [];
+  private visibilityChangeCallback?: (visible: boolean) => void;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
+
+  /**
+   * Set callback for when panel visibility changes
+   */
+  onVisibilityChange(callback: (visible: boolean) => void) {
+    this.visibilityChangeCallback = callback;
+  }
 
   /**
    * Configures webview with React app and sets up message routing.
@@ -22,6 +30,20 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   ) {
     this._view = webviewView;
     const webview = webviewView.webview;
+
+    // Track visibility changes
+    webviewView.onDidChangeVisibility(() => {
+      const isVisible = webviewView.visible;
+      this.visibilityChangeCallback?.(isVisible);
+    });
+
+    // Track disposal
+    webviewView.onDidDispose(() => {
+      this.visibilityChangeCallback?.(false);
+    });
+
+    // Initial visibility state
+    this.visibilityChangeCallback?.(webviewView.visible);
 
     // Configure webview security and permissions
     webview.options = {

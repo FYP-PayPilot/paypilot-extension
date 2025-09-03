@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ChatMessage as ChatMessageType } from '../../../types/chat';
+import { CodeAppliedCard } from './CodeAppliedCard';
+import { useVSCode } from '../../context/VSCodeContext';
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -11,6 +13,14 @@ interface ChatMessageProps {
  */
 export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+  const { postMessage } = useVSCode();
+
+  const handleFileClick = (filePath: string) => {
+    postMessage({
+      type: 'file:open',
+      filePath
+    });
+  };
 
   /**
    * Format text content with markdown support
@@ -202,6 +212,34 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
   const parts = formatMessageContent(message.content);
   const isUser = message.role === 'user';
+
+  // Handle working state
+  if (message.isWorking) {
+    return (
+      <div className="message message-assistant">
+        <div className="working-indicator">
+          <div className="loading-spinner"></div>
+          <span>{message.content}</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Handle code applied state
+  if (message.codeApplied) {
+    return (
+      <div className="message message-assistant">
+        <CodeAppliedCard
+          fileName={message.codeApplied.fileName}
+          filePath={message.codeApplied.filePath}
+          linesAdded={message.codeApplied.linesAdded}
+          linesDeleted={message.codeApplied.linesDeleted}
+          explanation={message.codeApplied.explanation}
+          onCardClick={handleFileClick}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={`message ${isUser ? 'message-user' : 'message-assistant'}`}>

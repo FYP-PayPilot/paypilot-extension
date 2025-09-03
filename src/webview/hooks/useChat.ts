@@ -54,18 +54,22 @@ export const useChat = () => {
       timestamp: Date.now()
     };
 
-    const assistantMessage: ChatMessage = {
+    // For agent mode, don't add the assistant message yet - wait for working message
+    // For ask mode, add the thinking placeholder
+    const assistantMessage: ChatMessage | null = mode === 'ask' ? {
       id: generateMessageId(),
       content: 'Thinking...',           // Placeholder until first token arrives
       role: 'assistant',
       timestamp: Date.now(),
       isStreaming: true                 // Enables real-time content updates
-    };
+    } : null;
 
     // Add messages to UI and prepare for streaming
     setState(prev => ({
       ...prev,
-      messages: [...prev.messages, userMessage, assistantMessage],
+      messages: assistantMessage 
+        ? [...prev.messages, userMessage, assistantMessage]
+        : [...prev.messages, userMessage],
       isLoading: true,                  // Shows loading state, disables input
       mode: mode                        // Updates current interaction mode
     }));
@@ -131,13 +135,54 @@ export const useChat = () => {
   useEffect(() => {
     const unsubscribe = onMessage((message) => {
       switch (message.type) {
-        case 'chat:stream':
-          // Receive and append individual tokens from AI response
+        case 'chat:working':
+          // Add working message for agent mode
+          setState(prev => {
+            const messages = [...prev.messages];
+            const workingMessage: ChatMessage = {
+              id: generateMessageId(),
+              content: message.message,
+              role: 'assistant',
+              timestamp: Date.now(),
+              isWorking: true
+            };
+            messages.push(workingMessage);
+            return { ...prev, messages, isLoading: true };
+          });
+          break;
+
+        case 'chat:code-applied':
+          // Replace working message with code applied card
           setState(prev => {
             const messages = [...prev.messages];
             const lastMessage = messages[messages.length - 1];
             
-            if (lastMessage && lastMessage.role === 'assistant') {
+            if (lastMessage && lastMessage.isWorking) {
+              messages[messages.length - 1] = {
+                ...lastMessage,
+                content: 'Code changes applied',
+                isWorking: false,
+                codeApplied: {
+                  fileName: message.fileName,
+                  filePath: message.filePath,
+                  linesAdded: message.linesAdded,
+                  linesDeleted: message.linesDeleted,
+                  explanation: message.explanation
+                }
+              };
+            }
+            
+            return { ...prev, messages, isLoading: false };
+          });
+          break;
+
+        case 'chat:stream':
+          // Receive and append individual tokens from AI response (ask mode only)
+          setState(prev => {
+            const messages = [...prev.messages];
+            const lastMessage = messages[messages.length - 1];
+            
+            if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isWorking) {
               // Replace placeholder or append to existing content
               const newContent = lastMessage.content === 'Thinking...' 
                 ? message.token                           // First token replaces placeholder

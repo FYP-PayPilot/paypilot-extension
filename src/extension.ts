@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import { ChatViewProvider } from './panels/ChatViewProvider';
 import { getAvailableModels, sendLanguageModelRequest } from './services/languageModel';
-import { ApiKeyManager } from './services/apiKeyManager';
 
 // Global state for VS Code native diff management
 let originalContent: string = ''; // Content before AI modifications
@@ -358,12 +357,6 @@ async function rejectChanges() {
  */
 export async function activate(context: vscode.ExtensionContext) {
   console.log('PayPilot extension is active (VS Code Language Model API)');
-
-  // Initialize API key manager (kept for future extensibility)
-  const apiKeyManager = new ApiKeyManager(context);
-  
-  // Register API key management commands
-  ApiKeyManager.registerCommands(context, apiKeyManager);
 
   // Initialize chat view provider
   const chatProvider = new ChatViewProvider(context);

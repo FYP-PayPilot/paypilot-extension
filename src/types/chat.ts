@@ -8,10 +8,20 @@ export interface ChatAskMessage {
   type: 'chat:ask';                    // Initiates AI chat request
   prompt: string;                      // User's input message
   mode: 'agent' | 'ask';              // Response mode: code generation vs Q&A
+  model: string;                       // Selected model identifier
 }
 
 export interface ChatStopMessage {
   type: 'chat:stop';                   // Cancels ongoing AI generation
+}
+
+export interface ModelChangeMessage {
+  type: 'model:change';                // Updates selected model
+  model: string;                       // New model identifier
+}
+
+export interface ModelListRequestMessage {
+  type: 'model:list-request';          // Requests available models
 }
 
 export interface DiffActionMessage {
@@ -23,6 +33,8 @@ export interface DiffActionMessage {
 export type WebviewToExtensionMessage = 
   | ChatAskMessage 
   | ChatStopMessage
+  | ModelChangeMessage
+  | ModelListRequestMessage
   | DiffActionMessage;
 
 // Messages sent from extension to webview (streaming responses)
@@ -45,6 +57,11 @@ export interface ChatStoppedMessage {
   type: 'chat:stopped';                // Confirms manual stop was processed
 }
 
+export interface ModelListMessage {
+  type: 'model:list';                  // Available models response
+  models: ModelInfo[];
+}
+
 export interface DiffAppliedMessage {
   type: 'diff:applied';
 }
@@ -54,7 +71,20 @@ export type ExtensionToWebviewMessage =
   | ChatDoneMessage 
   | ChatErrorMessage 
   | ChatStoppedMessage
+  | ModelListMessage
   | DiffAppliedMessage;
+
+// Model information for UI selection
+export interface ModelInfo {
+  id: string;                          // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
+  name: string;                        // Display name for UI
+  vendor: string;                      // Provider (e.g., 'vscode', 'deepseek', 'openai')
+  family?: string;                     // Model family (e.g., 'gpt-4', 'claude')
+  version?: string;                    // Model version
+  maxTokens?: number;                  // Maximum context length
+  description?: string;                // Optional description
+  isExternal: boolean;                 // True for external APIs, false for VS Code built-in
+}
 
 // Chat message for UI state management
 export interface ChatMessage {

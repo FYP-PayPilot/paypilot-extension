@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { ChatViewProvider } from './panels/ChatViewProvider';
-import { askDeepSeek, resolveApiKey } from './services/deepseek';
+import { getAvailableModels, sendLanguageModelRequest } from './services/languageModel';
 import { ApiKeyManager } from './services/apiKeyManager';
 
 // Global state for VS Code native diff management
@@ -348,36 +348,12 @@ async function rejectChanges() {
 }
 
 /**
- * Resolves API key from secure storage or VS Code configuration fallback
- */
-async function resolveDeepSeekApiKey(context: vscode.ExtensionContext): Promise<{ key?: string; source: string }> {
-  const apiKey = await resolveApiKey(context);
-  
-  if (apiKey) {
-    // Check if it came from secure storage first
-    const apiKeyManager = new ApiKeyManager(context);
-    const secureApiKey = await apiKeyManager.getApiKey('deepseek');
-    
-    if (secureApiKey) {
-      console.log('Found API key in secure storage');
-      return { key: apiKey, source: 'Secure Storage' };
-    } else {
-      console.log('Found API key in VS Code settings');
-      return { key: apiKey, source: 'VS Code settings' };
-    }
-  }
-
-  console.log('No API key found. Please set it using "PayPilot: Set DeepSeek API Key" command');
-  return { key: undefined, source: 'none' }; // No API key configured
-}
-
-/**
  * Extension activation function
  */
 export async function activate(context: vscode.ExtensionContext) {
-  console.log('PayPilot extension is active (VS Code API version)');
+  console.log('PayPilot extension is active (VS Code Language Model API)');
 
-  // Initialize API key manager
+  // Initialize API key manager (kept for future extensibility)
   const apiKeyManager = new ApiKeyManager(context);
   
   // Register API key management commands
@@ -392,6 +368,19 @@ export async function activate(context: vscode.ExtensionContext) {
       webviewOptions: { retainContextWhenHidden: true } // Keep chat state when hidden
     })
   );
+
+  // Auto-load models when extension starts to enable immediate use
+  chatProvider.postMessage({ type: 'model:list-request' });
+
+  // Listen for VS Code language model changes and refresh webview
+  if (vscode.lm && vscode.lm.onDidChangeChatModels) {
+    context.subscriptions.push(
+      vscode.lm.onDidChangeChatModels(() => {
+        // Notify webview about model changes
+        chatProvider.postMessage({ type: 'model:list-request' });
+      })
+    );
+  }
 
   // Register command to open chat view into extension context
   context.subscriptions.push(
@@ -419,14 +408,18 @@ export async function activate(context: vscode.ExtensionContext) {
   chatProvider.onMessage(async (msg: any, panel: any) => {
     if (msg?.type === 'chat:ask') {
       try {
-        // Resolve API key from configuration
-        const { key: apiKey } = await resolveDeepSeekApiKey(context);
-        if (!apiKey) {
-          panel.postMessage({ 
-            type: 'chat:error', 
-            error: 'No API key found. Please set it using "PayPilot: Set DeepSeek API Key" command or in VS Code settings.' 
-          });
-          return; // Can't proceed without API key
+        // Use specified model or first available model
+        let modelId = msg.model;
+        if (!modelId) {
+          const availableModels = await getAvailableModels(context);
+          if (availableModels.length === 0) {
+            panel.postMessage({ 
+              type: 'chat:error', 
+              error: 'No language models available. Please enable Copilot or sign in to VS Code.' 
+            });
+            return;
+          }
+          modelId = availableModels[0].id;
         }
 
         const editor = vscode.window.activeTextEditor;
@@ -505,11 +498,9 @@ export async function activate(context: vscode.ExtensionContext) {
         const abortController = new AbortController();
         currentAbortController = abortController;
 
-        // Make API call to DeepSeek
-        await askDeepSeek({
-          apiKey,
-          baseUrl: String(cfg.get('apiBase') || 'https://api.deepseek.com'), // API endpoint
-          model: String(cfg.get('model') || 'deepseek-chat'), // AI model
+        // Make API call using unified language model service
+        await sendLanguageModelRequest({
+          modelId,
           prompt: composed,
           abortSignal: abortController.signal,
           onToken: (t) => {
@@ -539,7 +530,7 @@ export async function activate(context: vscode.ExtensionContext) {
               error: err instanceof Error ? err.message : String(err) // Send error to UI
             });
           }
-        });
+        }, context);
 
       } catch (error) {
         currentAbortController = null; // Clear the controller on any error
@@ -556,6 +547,25 @@ export async function activate(context: vscode.ExtensionContext) {
         currentAbortController = null;
         panel.postMessage({ type: 'chat:stopped' }); // Notify UI that generation was stopped
       }
+    } else if (msg?.type === 'model:list-request') {
+      // Handle request for available models
+      try {
+        const models = await getAvailableModels(context);
+        panel.postMessage({ 
+          type: 'model:list', 
+          models 
+        });
+      } catch (error) {
+        console.error('Error getting available models:', error);
+        panel.postMessage({ 
+          type: 'chat:error', 
+          error: 'Failed to load available models' 
+        });
+      }
+    } else if (msg?.type === 'model:change') {
+      // Handle model change - could store in settings if needed
+      console.log('Model changed to:', msg.model);
+      // For now, just acknowledge - the model will be used in the next chat:ask
     } // End of message handling
   });
 }

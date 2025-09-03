@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
-import { ChatMessage, ChatState } from '../../types/chat';
+import { ChatMessage, ChatState, ModelInfo } from '../../types/chat';
 import { useVSCode } from '../context/VSCodeContext';
 
 /**
@@ -14,14 +14,40 @@ export const useChat = () => {
     mode: 'ask'
   });
 
+  const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('GPT-4.1'); // Start with reasonable default
+
   // Generate unique message IDs
   const generateMessageId = useCallback(() => {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
+  // Auto-load models when extension starts
+  useEffect(() => {
+    postMessage({ type: 'model:list-request' });
+  }, [postMessage]);
+
+  // Load available models only when needed (user-initiated)
+  const loadModelsWhenNeeded = useCallback(() => {
+    postMessage({ type: 'model:list-request' });
+  }, [postMessage]);
+
+  // Expose model loading function for manual triggering (e.g., dropdown click)
+  const loadModels = useCallback(() => {
+    postMessage({ type: 'model:list-request' });
+  }, [postMessage]);
+
   // Send user message and trigger streaming AI response
   const sendMessage = useCallback((prompt: string, mode: 'agent' | 'ask') => {
     if (!prompt.trim() || state.isLoading) {
+      return;
+    }
+
+    // Load models on first user interaction (user-initiated action)
+    loadModelsWhenNeeded();
+
+    if (!selectedModel) {
+      console.error('No model selected');
       return;
     }
 
@@ -53,9 +79,10 @@ export const useChat = () => {
     postMessage({
       type: 'chat:ask',
       prompt: prompt.trim(),
-      mode: mode
+      mode: mode,
+      model: selectedModel
     });
-  }, [state.isLoading, generateMessageId, postMessage]);
+  }, [state.isLoading, generateMessageId, postMessage, selectedModel, loadModelsWhenNeeded]);
 
   // Interrupt ongoing AI generation
   const stopGeneration = useCallback(() => {
@@ -95,6 +122,15 @@ export const useChat = () => {
   const setMode = useCallback((mode: 'agent' | 'ask') => {
     setState(prev => ({ ...prev, mode }));
   }, []);
+
+  // Handle model selection
+  const handleModelChange = useCallback((modelId: string) => {
+    setSelectedModel(modelId);
+    postMessage({
+      type: 'model:change',
+      model: modelId
+    });
+  }, [postMessage]);
 
   // Real-time message handler - processes streaming tokens and completion events
   useEffect(() => {
@@ -185,6 +221,20 @@ export const useChat = () => {
           }));
           break;
 
+        case 'model:list':
+          // Update available models and auto-select GPT-4.1 if it exists
+          setAvailableModels(message.models);
+          
+          // Auto-select GPT-4.1 if available, otherwise keep current selection
+          if (message.models.length > 0) {
+            const preferredModel = message.models.find(m => m.family === 'gpt-4.1') ||
+                                  message.models.find(m => m.family === 'gpt-4o');
+            if (preferredModel) {
+              setSelectedModel(preferredModel.id);
+            }
+          }
+          break;
+
         default:
           break;
       }
@@ -197,6 +247,10 @@ export const useChat = () => {
     ...state,
     sendMessage,
     stopGeneration,
-    setMode
+    setMode,
+    availableModels,
+    selectedModel,
+    onModelChange: handleModelChange,
+    loadModels
   };
 };

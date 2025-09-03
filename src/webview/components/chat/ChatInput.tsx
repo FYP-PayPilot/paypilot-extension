@@ -38,6 +38,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
    * Get display name for a model value
    */
   const getModelDisplayName = (value: string): string => {
+    if (!value) return 'Loading models...';
     const model = availableModels.find(m => m.id === value);
     return model ? model.name : value;
   };

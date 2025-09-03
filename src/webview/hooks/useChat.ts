@@ -15,7 +15,7 @@ export const useChat = () => {
   });
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
-  const [selectedModel, setSelectedModel] = useState<string>('GPT-4.1'); // Start with reasonable default
+  const [selectedModel, setSelectedModel] = useState<string>(''); // Start empty until models load
   const hasAutoSelectedModel = useRef(false); // Track if we've done initial auto-selection
 
   // Generate unique message IDs
@@ -28,12 +28,7 @@ export const useChat = () => {
     postMessage({ type: 'model:list-request' });
   }, [postMessage]);
 
-  // Load available models only when needed (user-initiated)
-  const loadModelsWhenNeeded = useCallback(() => {
-    postMessage({ type: 'model:list-request' });
-  }, [postMessage]);
-
-  // Smart model loading - only load if we don't have models yet
+  // Smart model loading - only load if we don't have models yet (fallback)
   const loadModels = useCallback(() => {
     if (availableModels.length === 0) {
       postMessage({ type: 'model:list-request' });
@@ -225,10 +220,17 @@ export const useChat = () => {
           // Update available models
           setAvailableModels(message.models);
           
-          // Auto-select GPT-4.1 only on first load, not on subsequent requests
+          // Auto-select preferred model only on first load
           if (message.models.length > 0 && !hasAutoSelectedModel.current) {
-            const preferredModel = message.models.find(m => m.family === 'gpt-4.1') ||
-                                  message.models.find(m => m.family === 'gpt-4o');
+            // Priority order: gpt-4.1 > gpt-4o > gpt-4 > claude-sonnet-4 > o3-mini
+            const preferredModel = 
+              message.models.find(m => m.id === 'gpt-4.1') ||
+              message.models.find(m => m.id === 'gpt-4o') ||
+              message.models.find(m => m.id === 'gpt-4') ||
+              message.models.find(m => m.id === 'claude-sonnet-4') ||
+              message.models.find(m => m.id === 'o3-mini') ||
+              message.models[0]; // Fallback to first available
+              
             if (preferredModel) {
               setSelectedModel(preferredModel.id);
             }

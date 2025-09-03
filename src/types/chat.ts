@@ -78,7 +78,7 @@ export type ExtensionToWebviewMessage =
 export interface ModelInfo {
   id: string;                          // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
   name: string;                        // Display name for UI
-  vendor: string;                      // Provider (e.g., 'vscode', 'deepseek', 'openai')
+  vendor: string;                      // Provider (e.g., 'vscode', 'openai', 'microsoft')
   family?: string;                     // Model family (e.g., 'gpt-4', 'claude')
   version?: string;                    // Model version
   maxTokens?: number;                  // Maximum context length

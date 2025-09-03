@@ -24,33 +24,46 @@ export interface LanguageModelRequest {
 }
 
 /**
- * Get all available VS Code language models
+ * Get all available VS Code language models - auto-loads without user interaction
  * 
- * This function automatically requests user consent and discovers available models.
- * It's designed to be called when user interacts with the model dropdown.
+ * This function automatically discovers available models without requiring user consent.
+ * It filters to only include the models we want to support.
  * 
  * @param context VS Code extension context (kept for consistency)
- * @returns Promise<ModelInfo[]> Array of available VS Code models
+ * @returns Promise<ModelInfo[]> Array of filtered VS Code models
  */
 export async function getAvailableModels(context: vscode.ExtensionContext): Promise<ModelInfo[]> {
   const models: ModelInfo[] = [];
 
   try {
-    // Auto-request user consent and discover models
-    console.log('[PayPilot] Auto-requesting user consent for language models...');
+    // Auto-discover all available models
+    console.log('[PayPilot] Auto-loading available language models...');
     
-    // Try to get all available models without vendor restriction first
+    // Try to get all available models without vendor restriction
     let vscodeModels = await vscode.lm.selectChatModels();
     
     console.log(`[PayPilot] Models discovered: (${vscodeModels.length})`, vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name, vendor: m.vendor })));
 
     if (vscodeModels.length === 0) {
-      console.warn('[PayPilot] No VS Code language models available. User may need to enable Copilot or sign in.');
+      console.warn('[PayPilot] No VS Code language models available.');
       return [];
     }
 
-    // Iterate over all discovered models and push each one to the models array
+    // Filter to only the models we want to support (based on actual VS Code models)
+    const allowedModelIds = [
+      'gpt-4.1',           // GPT-4.1
+      'gpt-4',             // GPT 4  
+      'gpt-4o',            // GPT-4o
+      'o3-mini',           // o3-mini
+      'claude-sonnet-4'    // Claude Sonnet 4
+    ];
+    
     for (const model of vscodeModels) {
+      // Only include models that are in our allowed list
+      if (!allowedModelIds.includes(model.id)) {
+        continue;
+      }
+
       const displayName = model.name || model.family || 'Unknown Model';
 
       models.push({

@@ -523,19 +523,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const mode = msg.mode || 'ask'; // Default to 'ask' mode
         
-        // Show working/thinking indicator to user
-        if (mode === 'agent') {
-          panel.postMessage({
-            type: 'chat:working',
-            message: 'Analyzing code and preparing changes...'
-          });
-        } else {
-          panel.postMessage({
-            type: 'chat:thinking',
-            message: 'Thinking...'
-          });
-        }
-
         // Compose the prompt based on mode (agent vs ask)
         let composed = '';
         if (mode === 'agent') {
@@ -543,8 +530,16 @@ export async function activate(context: vscode.ExtensionContext) {
           composed = [
             'You are an AI coding assistant. Analyze the user\'s request and the provided code context.',
             'Your task is to make the requested changes to the code.',
-            'Always respond with the complete modified file content wrapped in a code block.',
-            'Do not include explanations outside the code block.',
+            'Respond with two parts:',
+            '1. A brief summary of what you changed (1-2 sentences)',
+            '2. The complete modified file content wrapped in a code block',
+            '',
+            'Format your response like this:',
+            'Summary: [Brief description of changes]',
+            '',
+            '```[language]',
+            '[complete code]',
+            '```',
             '',
             editorContext ? '--- Current file context ---' : '',
             editorContext || '',
@@ -574,60 +569,107 @@ export async function activate(context: vscode.ExtensionContext) {
         const abortController = new AbortController();
         currentAbortController = abortController;
 
-        // Make API call using unified language model service
-        await sendLanguageModelRequest({
-          modelId,
-          prompt: composed,
-          abortSignal: abortController.signal,
-          onToken: (t) => {
-            fullResponse += t; // Build complete response
-            panel.postMessage({ type: 'chat:stream', token: t }); // Stream to UI
-          },
-          onDone: async (full) => {
-            currentAbortController = null; // Clear the controller
-            
-            // If in agent mode and we have code, apply it using VS Code's native diff
-            if (mode === 'agent' && editor) {
-              // Extract code from markdown code blocks
-              const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
-              const match = full.match(codeBlockRegex);
+        if (mode === 'agent') {
+          // Agent mode: Show working indicator instead of streaming
+          panel.postMessage({
+            type: 'chat:working',
+            message: 'Analyzing code and preparing changes...'
+          });
+
+          // Make API call without streaming for agent mode
+          await sendLanguageModelRequest({
+            modelId,
+            prompt: composed,
+            abortSignal: abortController.signal,
+            onToken: (t) => {
+              fullResponse += t; // Build complete response without streaming to UI
+            },
+            onDone: async (full) => {
+              currentAbortController = null; // Clear the controller
               
-              if (match && match[1]) {
-                const newContent = match[1].trim();
-                const oldContent = editor.document.getText();
-                const { added, deleted } = calculateDiffStats(
-                  oldContent.split('\n'),
-                  newContent.split('\n')
-                );
+              // Apply code changes if we have an editor and code
+              if (editor) {
+                const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
+                const match = full.match(codeBlockRegex);
                 
-                await applyChangesWithVSCodeDiff(newContent);
-                
-                // Send code applied message with diff stats
-                panel.postMessage({
-                  type: 'chat:code-applied',
-                  fileName: editor.document.fileName.split('/').pop() || 'Unknown',
-                  filePath: editor.document.uri.fsPath,
-                  linesAdded: added,
-                  linesDeleted: deleted,
-                  explanation: `Applied code changes based on your request`
-                });
+                if (match && match[1]) {
+                  const newContent = match[1].trim();
+                  const originalText = editor.document.getText(); // Get current content
+                  const originalLines = originalText.split('\n');
+                  const newLines = newContent.split('\n');
+                  
+                  await applyChangesWithVSCodeDiff(newContent);
+                  
+                  // Calculate proper diff stats using a simple LCS-based approach
+                  const diffStats = calculateDiffStats(originalLines, newLines);
+                  
+                  // Extract summary from AI response
+                  let explanation = '';
+                  const summaryMatch = full.match(/Summary:\s*(.+?)(?:\n|$)/i);
+                  if (summaryMatch && summaryMatch[1]) {
+                    explanation = summaryMatch[1].trim();
+                  } else {
+                    // Fallback: extract text outside code blocks
+                    const aiExplanation = full.replace(/```[a-zA-Z0-9_-]*\s*[\s\S]*?```/g, '').trim();
+                    explanation = aiExplanation.length > 20 ? aiExplanation : '';
+                  }
+                  
+                  // Generate a smart summary if no explanation
+                  if (!explanation && (diffStats.added > 0 || diffStats.deleted > 0)) {
+                    const changes = [];
+                    if (diffStats.added > 0) changes.push(`${diffStats.added} line${diffStats.added > 1 ? 's' : ''} added`);
+                    if (diffStats.deleted > 0) changes.push(`${diffStats.deleted} line${diffStats.deleted > 1 ? 's' : ''} removed`);
+                    explanation = `Updated code: ${changes.join(', ')}`;
+                  }
+                  
+                  // Send code applied message
+                  panel.postMessage({
+                    type: 'chat:code-applied',
+                    fileName: editor.document.fileName.split('/').pop() || 'Unknown file',
+                    filePath: editor.document.uri.fsPath,
+                    linesAdded: diffStats.added,
+                    linesDeleted: diffStats.deleted,
+                    explanation
+                  });
+                } else {
+                  // No code found, send as regular done message
+                  panel.postMessage({ type: 'chat:done', text: full });
+                }
               } else {
-                // No code block found, send normal done message
                 panel.postMessage({ type: 'chat:done', text: full });
               }
-            } else {
-              // Ask mode - send normal done message
-              panel.postMessage({ type: 'chat:done', text: full });
+            },
+            onError: (err) => {
+              currentAbortController = null; // Clear the controller
+              panel.postMessage({ 
+                type: 'chat:error', 
+                error: err instanceof Error ? err.message : String(err) // Send error to UI
+              });
             }
-          },
-          onError: (err) => {
-            currentAbortController = null; // Clear the controller
-            panel.postMessage({ 
-              type: 'chat:error', 
-              error: err instanceof Error ? err.message : String(err) // Send error to UI
-            });
-          }
-        }, context);
+          }, context);
+        } else {
+          // Ask mode: Continue with streaming as before
+          await sendLanguageModelRequest({
+            modelId,
+            prompt: composed,
+            abortSignal: abortController.signal,
+            onToken: (t) => {
+              fullResponse += t; // Build complete response
+              panel.postMessage({ type: 'chat:stream', token: t }); // Stream to UI
+            },
+            onDone: async (full) => {
+              currentAbortController = null; // Clear the controller
+              panel.postMessage({ type: 'chat:done', text: full }); // Notify UI completion
+            },
+            onError: (err) => {
+              currentAbortController = null; // Clear the controller
+              panel.postMessage({ 
+                type: 'chat:error', 
+                error: err instanceof Error ? err.message : String(err) // Send error to UI
+              });
+            }
+          }, context);
+        }
 
       } catch (error) {
         currentAbortController = null; // Clear the controller on any error
@@ -664,11 +706,10 @@ export async function activate(context: vscode.ExtensionContext) {
       console.log('Model changed to:', msg.model);
       // For now, just acknowledge - the model will be used in the next chat:ask
     } else if (msg?.type === 'file:open') {
-      // Handle file navigation request
+      // Handle file open request from code applied card
       try {
-        const fileUri = vscode.Uri.file(msg.filePath);
-        const document = await vscode.workspace.openTextDocument(fileUri);
-        await vscode.window.showTextDocument(document);
+        const uri = vscode.Uri.file(msg.filePath);
+        await vscode.window.showTextDocument(uri);
       } catch (error) {
         console.error('Error opening file:', error);
         vscode.window.showErrorMessage(`Failed to open file: ${msg.filePath}`);

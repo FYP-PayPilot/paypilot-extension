@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { ChatMessage, ChatState, ModelInfo } from '../../types/chat';
 import { useVSCode } from '../context/VSCodeContext';
 
@@ -16,6 +16,7 @@ export const useChat = () => {
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('GPT-4.1'); // Start with reasonable default
+  const hasAutoSelectedModel = useRef(false); // Track if we've done initial auto-selection
 
   // Generate unique message IDs
   const generateMessageId = useCallback(() => {
@@ -32,19 +33,18 @@ export const useChat = () => {
     postMessage({ type: 'model:list-request' });
   }, [postMessage]);
 
-  // Expose model loading function for manual triggering (e.g., dropdown click)
+  // Smart model loading - only load if we don't have models yet
   const loadModels = useCallback(() => {
-    postMessage({ type: 'model:list-request' });
-  }, [postMessage]);
+    if (availableModels.length === 0) {
+      postMessage({ type: 'model:list-request' });
+    }
+  }, [postMessage, availableModels.length]);
 
   // Send user message and trigger streaming AI response
   const sendMessage = useCallback((prompt: string, mode: 'agent' | 'ask') => {
     if (!prompt.trim() || state.isLoading) {
       return;
     }
-
-    // Load models on first user interaction (user-initiated action)
-    loadModelsWhenNeeded();
 
     if (!selectedModel) {
       console.error('No model selected');
@@ -82,7 +82,7 @@ export const useChat = () => {
       mode: mode,
       model: selectedModel
     });
-  }, [state.isLoading, generateMessageId, postMessage, selectedModel, loadModelsWhenNeeded]);
+  }, [state.isLoading, generateMessageId, postMessage, selectedModel]);
 
   // Interrupt ongoing AI generation
   const stopGeneration = useCallback(() => {
@@ -222,16 +222,17 @@ export const useChat = () => {
           break;
 
         case 'model:list':
-          // Update available models and auto-select GPT-4.1 if it exists
+          // Update available models
           setAvailableModels(message.models);
           
-          // Auto-select GPT-4.1 if available, otherwise keep current selection
-          if (message.models.length > 0) {
+          // Auto-select GPT-4.1 only on first load, not on subsequent requests
+          if (message.models.length > 0 && !hasAutoSelectedModel.current) {
             const preferredModel = message.models.find(m => m.family === 'gpt-4.1') ||
                                   message.models.find(m => m.family === 'gpt-4o');
             if (preferredModel) {
               setSelectedModel(preferredModel.id);
             }
+            hasAutoSelectedModel.current = true;
           }
           break;
 
@@ -250,7 +251,6 @@ export const useChat = () => {
     setMode,
     availableModels,
     selectedModel,
-    onModelChange: handleModelChange,
-    loadModels
+    onModelChange: handleModelChange
   };
 };

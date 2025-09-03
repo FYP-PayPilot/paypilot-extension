@@ -16,7 +16,6 @@ interface ChatInputProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
   availableModels: ModelInfo[];
-  onLoadModels: () => void;
 }
 
 /**
@@ -31,8 +30,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onModeChange,
   selectedModel,
   onModelChange,
-  availableModels,
-  onLoadModels
+  availableModels
 }) => {
   const [inputValue, setInputValue] = useState('');
 
@@ -129,7 +127,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <select
                 value={selectedModel}
                 onChange={(e) => onModelChange(e.target.value)}
-                onFocus={onLoadModels}
                 title="Select AI model"
                 className="footer-select"
               >

@@ -38,14 +38,18 @@ export async function getAvailableModels(context: vscode.ExtensionContext): Prom
   try {
     // Auto-request user consent and discover models
     console.log('[PayPilot] Auto-requesting user consent for language models...');
-    const vscodeModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-    console.log('[PayPilot] Models discovered:', vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name })));
+    
+    // Try to get all available models without vendor restriction first
+    let vscodeModels = await vscode.lm.selectChatModels();
+    
+    console.log(`[PayPilot] Models discovered: (${vscodeModels.length})`, vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name, vendor: m.vendor })));
 
     if (vscodeModels.length === 0) {
       console.warn('[PayPilot] No VS Code language models available. User may need to enable Copilot or sign in.');
       return [];
     }
-    
+
+    // Iterate over all discovered models and push each one to the models array
     for (const model of vscodeModels) {
       const displayName = model.name || model.family || 'Unknown Model';
 
@@ -87,10 +91,8 @@ export async function sendLanguageModelRequest(
   let cancellationTokenSource: vscode.CancellationTokenSource | undefined;
 
   try {
-    // Select model with user consent - this should trigger the consent popup
-    console.log('[PayPilot] Requesting user consent for language models...');
-    const allModels = await vscode.lm.selectChatModels({ vendor: 'copilot' });
-    console.log('[PayPilot] User consent granted. Available models:', allModels.map(m => ({ id: m.id, family: m.family, name: m.name })));
+    // Get available models (auto-consent already handled)
+    const allModels = await vscode.lm.selectChatModels();
     
     // Find model by family or ID
     const selectedModel = allModels.find(m => m.family === modelId) ||
@@ -100,8 +102,6 @@ export async function sendLanguageModelRequest(
     if (!selectedModel) {
       throw new Error(`No language model found. Available: ${allModels.map(m => m.family).join(', ')}`);
     }
-
-    console.log('[PayPilot] Using model:', { id: selectedModel.id, family: selectedModel.family, name: selectedModel.name });
 
     // Setup cancellation
     cancellationTokenSource = new vscode.CancellationTokenSource();

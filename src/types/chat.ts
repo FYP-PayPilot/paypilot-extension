@@ -30,12 +30,18 @@ export interface DiffActionMessage {
   lineNumber?: number;                 // undefined means all changes
 }
 
+export interface FileOpenMessage {
+  type: 'file:open';
+  filePath: string;
+}
+
 export type WebviewToExtensionMessage = 
   | ChatAskMessage 
   | ChatStopMessage
   | ModelChangeMessage
   | ModelListRequestMessage
-  | DiffActionMessage;
+  | DiffActionMessage
+  | FileOpenMessage;
 
 // Messages sent from extension to webview (streaming responses)
 export interface ChatStreamMessage {
@@ -66,13 +72,29 @@ export interface DiffAppliedMessage {
   type: 'diff:applied';
 }
 
+export interface ChatWorkingMessage {
+  type: 'chat:working';
+  message: string;
+}
+
+export interface ChatCodeAppliedMessage {
+  type: 'chat:code-applied';
+  fileName: string;
+  filePath: string;
+  linesAdded: number;
+  linesDeleted: number;
+  explanation: string;
+}
+
 export type ExtensionToWebviewMessage = 
   | ChatStreamMessage 
   | ChatDoneMessage 
   | ChatErrorMessage 
   | ChatStoppedMessage
   | ModelListMessage
-  | DiffAppliedMessage;
+  | DiffAppliedMessage
+  | ChatWorkingMessage
+  | ChatCodeAppliedMessage;
 
 // Model information for UI selection
 export interface ModelInfo {
@@ -93,6 +115,14 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   timestamp: number;
   isStreaming?: boolean;               // True while receiving stream tokens
+  isWorking?: boolean;                 // True while showing working indicator
+  codeApplied?: {                      // Present when code changes were applied
+    fileName: string;
+    filePath: string;
+    linesAdded: number;
+    linesDeleted: number;
+    explanation: string;
+  };
 }
 
 // Application state

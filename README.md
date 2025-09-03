@@ -2,6 +2,120 @@
 
 An AI-powered coding assistant VS Code extension with a chat interface that provides intelligent code suggestions and can apply changes directly to your codebase.
 
+## 🛠️ Development Workflow & Build System
+
+### How the Build System Works
+
+This extension uses a sophisticated multi-process build system that coordinates TypeScript compilation and JavaScript bundling for optimal development experience.
+
+#### 📁 Key Configuration Files
+
+**`.vscode/tasks.json`** - The Build Orchestrator
+```jsonc
+{
+  "tasks": [
+    {
+      "label": "watch",                    // Main development task
+      "dependsOn": [
+        "npm: watch:tsc",                  // TypeScript type checking
+        "npm: watch:esbuild"               // JavaScript bundling
+      ]
+    }
+  ]
+}
+```
+
+**`package.json`** - Script Definitions
+```json
+{
+  "scripts": {
+    "watch:tsc": "tsc -watch -p ./",      // Continuous type checking
+    "watch:esbuild": "node esbuild.js --watch"  // Continuous bundling
+  }
+}
+```
+
+**`esbuild.js`** - The Bundler Configuration
+```javascript
+// Creates TWO separate builds:
+// 1. Extension (Node.js): src/extension.ts → dist/extension.js
+// 2. Webview (Browser): src/webview/index.tsx → dist/media/webview.js
+```
+
+### 🔄 Development Process Flow
+
+When you press **`F5`** or **`Ctrl+Shift+B`**:
+
+```
+1. VS Code reads .vscode/tasks.json
+   ↓
+2. Runs "watch" task 
+   ↓
+3. Starts TWO processes in parallel:
+
+   Process A: TypeScript Compiler (tsc)
+   ┌─────────────────────────────────┐
+   │ • Reads tsconfig.json           │
+   │ • Continuous type checking      │
+   │ • Error reporting               │
+   │ • IntelliSense support          │
+   │ • No file output (just types)   │
+   └─────────────────────────────────┘
+
+   Process B: esbuild Bundler
+   ┌─────────────────────────────────┐
+   │ • Bundles src/extension.ts      │
+   │ • Bundles src/webview/index.tsx │
+   │ • Transforms React JSX          │
+   │ • Copies media files            │
+   │ • Outputs to dist/ folder       │
+   └─────────────────────────────────┘
+```
+
+### 📦 File Transform Pipeline
+
+```
+SOURCE FILES                    →    BUNDLED OUTPUT
+├── src/extension.ts           →    dist/extension.js (Node.js)
+├── src/webview/index.tsx      →    dist/media/webview.js (Browser)
+├── src/media/global.css       →    dist/media/global.css
+└── package.json               →    Extension metadata
+
+DUAL ENVIRONMENT ARCHITECTURE:
+┌─ Extension (Node.js) ────────┐    ┌─ Webview (Browser) ──────────┐
+│ • VS Code APIs              │    │ • React Components           │
+│ • File system access        │    │ • DOM manipulation           │
+│ • API key management        │    │ • User interface             │
+│ • Diff generation           │    │ • Chat interactions          │
+└──────────────────────────────┘    └──────────────────────────────┘
+                ↕ postMessage Communication ↕
+```
+
+### ⚡ Live Development Features
+
+**Instant Feedback Loop:**
+1. **Save any file** → Triggers rebuild (< 100ms)
+2. **TypeScript errors** → Appear immediately in Problems panel
+3. **Extension reload** → Automatic via VS Code
+4. **React hot reload** → UI updates without losing state
+
+**Background Processes:**
+- **`isBackground: true`** - Tasks run continuously
+- **File watching** - Detects changes automatically
+- **Incremental builds** - Only rebuilds changed files
+
+### 🎯 Why This Architecture?
+
+**Separation of Concerns:**
+- **tsc**: Excellent TypeScript error reporting & IntelliSense
+- **esbuild**: Ultra-fast bundling (10-100x faster than webpack)
+- **Dual builds**: Extension (Node.js) + Webview (Browser) environments
+
+**Development Speed:**
+- **Millisecond rebuilds** with esbuild
+- **Parallel processing** with tsc + esbuild
+- **No build tools conflicts** - each does what it's best at
+
 ## 🎯 What This Extension Does
 
 PayPilot is a VS Code extension that:

@@ -812,3 +812,104 @@ html, body, #root {
   transition-duration: 0.15s;
   transition-timing-function: ease;
 }
+
+/* Code Applied Card */
+.code-applied-card {
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--panel-bg);
+  margin: var(--space-sm) 0;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.code-applied-card:hover {
+  background: var(--surface-hover);
+}
+
+.code-applied-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-sm);
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-weight: 500;
+}
+
+.file-icon {
+  color: var(--vscode-symbolIcon-fileForeground);
+  width: 16px;
+  height: 16px;
+}
+
+.diff-stats {
+  display: flex;
+  gap: var(--space-sm);
+  font-size: 12px;
+}
+
+.lines-added {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--vscode-gitDecoration-addedResourceForeground);
+}
+
+.lines-deleted {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--vscode-gitDecoration-deletedResourceForeground);
+}
+
+.lines-unchanged {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+  font-size: 11px;
+}
+
+.diff-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.code-applied-explanation {
+  color: var(--foreground);
+  opacity: 0.8;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+/* Working Indicator */
+.working-indicator {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  background: var(--panel-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--panel-border);
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--panel-border);
+  border-top-color: var(--vscode-focusBorder);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

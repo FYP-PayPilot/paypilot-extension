@@ -523,11 +523,18 @@ export async function activate(context: vscode.ExtensionContext) {
 
         const mode = msg.mode || 'ask'; // Default to 'ask' mode
         
-        // Show thinking indicator to user
-        panel.postMessage({
-          type: 'chat:thinking',
-          message: mode === 'agent' ? 'Analyzing code and preparing changes...' : 'Thinking...'
-        });
+        // Show working/thinking indicator to user
+        if (mode === 'agent') {
+          panel.postMessage({
+            type: 'chat:working',
+            message: 'Analyzing code and preparing changes...'
+          });
+        } else {
+          panel.postMessage({
+            type: 'chat:thinking',
+            message: 'Thinking...'
+          });
+        }
 
         // Compose the prompt based on mode (agent vs ask)
         let composed = '';
@@ -578,7 +585,6 @@ export async function activate(context: vscode.ExtensionContext) {
           },
           onDone: async (full) => {
             currentAbortController = null; // Clear the controller
-            panel.postMessage({ type: 'chat:done', text: full }); // Notify UI completion
             
             // If in agent mode and we have code, apply it using VS Code's native diff
             if (mode === 'agent' && editor) {
@@ -588,8 +594,30 @@ export async function activate(context: vscode.ExtensionContext) {
               
               if (match && match[1]) {
                 const newContent = match[1].trim();
-                await applyChangesWithVSCodeDiff(newContent); // Apply changes and show diff
+                const oldContent = editor.document.getText();
+                const { added, deleted } = calculateDiffStats(
+                  oldContent.split('\n'),
+                  newContent.split('\n')
+                );
+                
+                await applyChangesWithVSCodeDiff(newContent);
+                
+                // Send code applied message with diff stats
+                panel.postMessage({
+                  type: 'chat:code-applied',
+                  fileName: editor.document.fileName.split('/').pop() || 'Unknown',
+                  filePath: editor.document.uri.fsPath,
+                  linesAdded: added,
+                  linesDeleted: deleted,
+                  explanation: `Applied code changes based on your request`
+                });
+              } else {
+                // No code block found, send normal done message
+                panel.postMessage({ type: 'chat:done', text: full });
               }
+            } else {
+              // Ask mode - send normal done message
+              panel.postMessage({ type: 'chat:done', text: full });
             }
           },
           onError: (err) => {
@@ -635,6 +663,16 @@ export async function activate(context: vscode.ExtensionContext) {
       // Handle model change - could store in settings if needed
       console.log('Model changed to:', msg.model);
       // For now, just acknowledge - the model will be used in the next chat:ask
+    } else if (msg?.type === 'file:open') {
+      // Handle file navigation request
+      try {
+        const fileUri = vscode.Uri.file(msg.filePath);
+        const document = await vscode.workspace.openTextDocument(fileUri);
+        await vscode.window.showTextDocument(document);
+      } catch (error) {
+        console.error('Error opening file:', error);
+        vscode.window.showErrorMessage(`Failed to open file: ${msg.filePath}`);
+      }
     } // End of message handling
   });
 }

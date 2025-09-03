@@ -2,6 +2,62 @@ import * as vscode from 'vscode';
 import { ChatViewProvider } from './panels/ChatViewProvider';
 import { getAvailableModels, sendLanguageModelRequest } from './services/languageModel';
 
+/**
+ * Calculate proper diff statistics between two arrays of lines
+ * Uses Myers' diff algorithm approach for accurate line-level changes
+ */
+function calculateDiffStats(oldLines: string[], newLines: string[]): { added: number; deleted: number } {
+  // Use a simplified Myers algorithm approach
+  const m = oldLines.length;
+  const n = newLines.length;
+  
+  // Create a 2D array for dynamic programming
+  const dp: number[][] = Array(m + 1).fill(null).map(() => Array(n + 1).fill(0));
+  
+  // Fill the DP table
+  for (let i = 0; i <= m; i++) {
+    for (let j = 0; j <= n; j++) {
+      if (i === 0) {
+        dp[i][j] = j; // All insertions
+      } else if (j === 0) {
+        dp[i][j] = i; // All deletions
+      } else if (oldLines[i - 1] === newLines[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1]; // No change
+      } else {
+        dp[i][j] = 1 + Math.min(
+          dp[i - 1][j],     // Deletion
+          dp[i][j - 1],     // Insertion
+          dp[i - 1][j - 1]  // Substitution
+        );
+      }
+    }
+  }
+  
+  // Trace back to count actual additions and deletions
+  let added = 0;
+  let deleted = 0;
+  let i = m;
+  let j = n;
+  
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      // Lines are the same, move diagonally
+      i--;
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i - 1][j] <= dp[i][j - 1])) {
+      // Deletion
+      deleted++;
+      i--;
+    } else {
+      // Insertion
+      added++;
+      j--;
+    }
+  }
+  
+  return { added, deleted };
+}
+
 // Global state for VS Code native diff management
 let originalContent: string = ''; // Content before AI modifications
 let currentDocumentUri: vscode.Uri | undefined; // File being tracked for diffs

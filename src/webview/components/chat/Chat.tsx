@@ -13,23 +13,14 @@ export const Chat: React.FC = () => {
     mode,
     sendMessage,
     stopGeneration,
-    setMode
+    setMode,
+    availableModels,
+    selectedModel,
+    onModelChange,
+    loadModels
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // TODO: Get selected model from extension settings
-  const [selectedModel, setSelectedModel] = useState('deepseek-chat');
-
-  /**
-   * Handle model change
-   * TODO: Implement model switching in the extension
-   */
-  const handleModelChange = (model: string) => {
-    setSelectedModel(model);
-    // TODO: Send model change message to extension
-    // postMessage({ type: 'model:change', model });
-  };
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -71,8 +62,10 @@ export const Chat: React.FC = () => {
           isLoading={isLoading}
           mode={mode}
           onModeChange={setMode}
-          selectedModel={selectedModel}
-          onModelChange={handleModelChange}
+          selectedModel={selectedModel || ''}
+          onModelChange={onModelChange}
+          availableModels={availableModels}
+          onLoadModels={loadModels}
         />
       </div>
     </div>

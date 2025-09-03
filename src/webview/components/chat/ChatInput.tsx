@@ -4,6 +4,7 @@ import { Textarea } from '../ui/Textarea';
 import { IoSend, IoStop } from 'react-icons/io5';
 import { HiSparkles, HiChevronDown } from 'react-icons/hi2';
 import { BsQuestionLg } from 'react-icons/bs';
+import { ModelInfo } from '../../../types/chat';
 
 interface ChatInputProps {
   onSendMessage: (message: string, mode: 'agent' | 'ask') => void;
@@ -14,21 +15,9 @@ interface ChatInputProps {
   onModeChange: (mode: 'agent' | 'ask') => void;
   selectedModel: string;
   onModelChange: (model: string) => void;
+  availableModels: ModelInfo[];
+  onLoadModels: () => void;
 }
-
-// array containing models
-const models = [
-  { value: 'deepseek-chat', label: 'DeepSeek' },
-  { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
-  { value: 'gpt-4-1', label:"GPT 4.1" }
-];
-
-/**
- * Get display name for a model value
- */
-const getModelDisplayName = (value: string): string => {
-  return models.find(model => model.value === value)?.label || value;
-};
 
 /**
  * Modern chat input component with send/stop functionality and footer controls
@@ -41,9 +30,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   mode,
   onModeChange,
   selectedModel,
-  onModelChange
+  onModelChange,
+  availableModels,
+  onLoadModels
 }) => {
   const [inputValue, setInputValue] = useState('');
+
+  /**
+   * Get display name for a model value
+   */
+  const getModelDisplayName = (value: string): string => {
+    const model = availableModels.find(m => m.id === value);
+    return model ? model.name : value;
+  };
 
   /**
    * Handle sending the message
@@ -130,12 +129,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <select
                 value={selectedModel}
                 onChange={(e) => onModelChange(e.target.value)}
+                onFocus={onLoadModels}
                 title="Select AI model"
                 className="footer-select"
               >
-                {models.map((model) => (
-                  <option key={model.value} value={model.value}>
-                    {model.label}
+                {availableModels.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
                   </option>
                 ))}
               </select>

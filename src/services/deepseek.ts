@@ -100,7 +100,9 @@ export async function askDeepSeek(args: AskArgs): Promise<void> {
       const { done, value } = await reader.read();
       
       // Exit loop when stream is complete
-      if (done) break;
+      if (done) {
+        break;
+      }
 
       // Convert the chunk bytes to text
       const chunk = decoder.decode(value, { stream: true });
@@ -115,7 +117,9 @@ export async function askDeepSeek(args: AskArgs): Promise<void> {
       // Process each line in the chunk
       for (const line of lines) {
         // Skip lines that don't contain SSE data
-        if (!line.startsWith('data:')) continue;
+        if (!line.startsWith('data:')) {
+          continue;
+        }
         
         // Extract the JSON data after "data: " prefix
         const data = line.slice(5).trim();

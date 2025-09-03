@@ -21,7 +21,9 @@ export const useChat = () => {
 
   // Send user message and trigger streaming AI response
   const sendMessage = useCallback((prompt: string, mode: 'agent' | 'ask') => {
-    if (!prompt.trim() || state.isLoading) return;
+    if (!prompt.trim() || state.isLoading) {
+      return;
+    }
 
     // Create user message and placeholder for streaming response
     const userMessage: ChatMessage = {
@@ -57,7 +59,9 @@ export const useChat = () => {
 
   // Interrupt ongoing AI generation
   const stopGeneration = useCallback(() => {
-    if (!state.isLoading) return;
+    if (!state.isLoading) {
+      return;
+    }
 
     // Send stop signal to extension/API
     postMessage({

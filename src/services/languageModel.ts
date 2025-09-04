@@ -2,81 +2,48 @@ import * as vscode from 'vscode';
 import { ModelInfo } from '../types/chat';
 
 /**
- * Language Model Service - VS Code Language Model API
+ * Language Model Service - Direct VS Code Language Model API
  * 
- * This service strictly follows the VS Code Language Model API documentation:
+ * This service uses the direct VS Code Language Model API:
  * - Uses vscode.lm.selectChatModels() to discover available models
- * - Creates prompts with LanguageModelChatMessage.User()
- * - Handles streaming responses through response.text AsyncIterable
- * - Implements proper error handling with LanguageModelError
- * - Provides defensive programming for model availability
- * 
- * Focuses exclusively on VS Code built-in models for better integration and user experience.
+ * - Direct sendRequest calls with proper error handling
+ * - Native streaming through response.text AsyncIterable
+ * - Simplified, maintainable code following VS Code best practices
  */
-
-export interface LanguageModelRequest {
-  modelId: string;
-  prompt: string;
-  abortSignal?: AbortSignal;
-  onToken: (token: string) => void;
-  onDone: (fullText: string) => void;
-  onError: (error: unknown) => void;
-}
 
 /**
- * Get all available VS Code language models - auto-loads without user interaction
- * 
- * This function automatically discovers available models without requiring user consent.
- * It filters to only include the models we want to support.
- * 
- * @param context VS Code extension context (kept for consistency)
- * @returns Promise<ModelInfo[]> Array of filtered VS Code models
+ * Get all available VS Code language models
  */
-export async function getAvailableModels(context: vscode.ExtensionContext): Promise<ModelInfo[]> {
-  const models: ModelInfo[] = [];
-
+export async function getAvailableModels(): Promise<ModelInfo[]> {
   try {
-    // Auto-discover all available models
-    console.log('[PayPilot] Auto-loading available language models...');
+    console.log('[PayPilot] Loading available language models...');
     
-    // Try to get all available models without vendor restriction
-    let vscodeModels = await vscode.lm.selectChatModels();
-    
-    console.log(`[PayPilot] Models discovered: (${vscodeModels.length})`, vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name, vendor: m.vendor })));
+    const vscodeModels = await vscode.lm.selectChatModels();
+    console.log(`[PayPilot] Models discovered: (${vscodeModels.length})`, 
+      vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name, vendor: m.vendor })));
 
     if (vscodeModels.length === 0) {
       console.warn('[PayPilot] No VS Code language models available.');
       return [];
     }
 
-    // Filter to only the models we want to support (based on actual VS Code models)
-    const allowedModelIds = [
-      'gpt-4.1',           // GPT-4.1
-      'gpt-4',             // GPT 4  
-      'gpt-4o',            // GPT-4o
-      'o3-mini',           // o3-mini
-      'claude-sonnet-4'    // Claude Sonnet 4
-    ];
-    
-    for (const model of vscodeModels) {
-      // Only include models that are in our allowed list
-      if (!allowedModelIds.includes(model.id)) {
-        continue;
-      }
+    // Convert VS Code model objects to our standardized ModelInfo format
+    // This is needed because:
+    // 1. Our React UI expects the ModelInfo interface structure
+    // 2. VS Code models have different property names/organization
+    // 3. We want consistent model representation across the extension
+    const models: ModelInfo[] = vscodeModels.map(model => ({
+      id: model.id,
+      name: model.name || model.family || 'Unknown Model',
+      vendor: model.vendor,
+      family: model.family,
+      version: model.version,
+      maxTokens: model.maxInputTokens,
+      description: `VS Code language model (${model.vendor})`,
+      isExternal: false
+    }));
 
-      const displayName = model.name || model.family || 'Unknown Model';
-
-      models.push({
-        id: model.id,
-        name: displayName,
-        vendor: model.vendor,
-        family: model.family,
-        version: model.version,
-        maxTokens: model.maxInputTokens,
-        description: `VS Code built-in model (${model.vendor})`,
-        isExternal: false
-      });
-    }
+    return models.sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     console.warn('[PayPilot] Failed to load VS Code language models:', error);
     
@@ -86,71 +53,129 @@ export async function getAvailableModels(context: vscode.ExtensionContext): Prom
     
     return [];
   }
-
-  // Sort models alphabetically for consistent UI
-  models.sort((a, b) => a.name.localeCompare(b.name));
-  return models;
 }
 
 /**
- * Send request to the specified VS Code language model
+ * Stream chat response from language model - Agent Mode (no UI streaming)
+ * Collects full response before processing
  */
-export async function sendLanguageModelRequest(
-  request: LanguageModelRequest,
-  context: vscode.ExtensionContext
-): Promise<void> {
-  const { modelId, prompt, abortSignal, onToken, onDone, onError } = request;
-  let fullResponse = '';
-  let cancellationTokenSource: vscode.CancellationTokenSource | undefined;
-
+export async function streamChatAgent(
+  modelId: string,
+  prompt: string,
+  abortSignal?: AbortSignal
+): Promise<string> {
+  console.log(`[PayPilot] 🚀 Using NEW DIRECT API - streamChatAgent with model: ${modelId}`);
   try {
-    // Get available models (auto-consent already handled)
-    const allModels = await vscode.lm.selectChatModels();
-    
-    // Find model by family or ID
-    const selectedModel = allModels.find(m => m.family === modelId) ||
-                         allModels.find(m => m.id === modelId) ||
-                         allModels[0]; // Use first available as fallback
+    const models = await vscode.lm.selectChatModels();
+    const selectedModel = models.find(m => m.family === modelId || m.id === modelId) || models[0];
     
     if (!selectedModel) {
-      throw new Error(`No language model found. Available: ${allModels.map(m => m.family).join(', ')}`);
+      throw new Error(`No language model found. Available: ${models.map(m => m.family).join(', ')}`);
     }
 
-    // Setup cancellation
-    cancellationTokenSource = new vscode.CancellationTokenSource();
+    console.log(`[PayPilot] Selected model for agent mode: ${selectedModel.family} (${selectedModel.name})`);
+
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+    
+    // Handle abort signal
+    if (abortSignal?.aborted) {
+      cancellationTokenSource.cancel();
+      throw new Error('Request was cancelled');
+    }
+    abortSignal?.addEventListener('abort', () => cancellationTokenSource.cancel());
+
+    const response = await selectedModel.sendRequest(
+      [vscode.LanguageModelChatMessage.User(prompt)],
+      { justification: 'PayPilot agent mode request' },
+      cancellationTokenSource.token
+    );
+    
+    console.log(`[PayPilot] ✅ Direct API call successful - collecting full response in agent mode`);
+    
+    let fullResponse = '';
+    for await (const chunk of response.text) {
+      if (cancellationTokenSource.token.isCancellationRequested) {
+        throw new Error('Request was cancelled');
+      }
+      fullResponse += chunk;
+    }
+
+    console.log(`[PayPilot] ✅ Agent mode complete - collected ${fullResponse.length} characters`);
+
+    cancellationTokenSource.dispose();
+    return fullResponse;
+    
+  } catch (error) {
+    if (error instanceof vscode.LanguageModelError) {
+      throw new Error(`Language model error: ${error.message}`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Stream chat response from language model - Chat Mode (with UI streaming)
+ * Streams tokens in real-time to the provided callback
+ */
+export async function streamChatUI(
+  modelId: string,
+  prompt: string,
+  onToken: (token: string) => void,
+  onComplete: (fullText: string) => void,
+  abortSignal?: AbortSignal
+): Promise<void> {
+  console.log(`[PayPilot] 🚀 Using NEW DIRECT API - streamChatUI with model: ${modelId}`);
+  try {
+    const models = await vscode.lm.selectChatModels();
+    const selectedModel = models.find(m => m.family === modelId || m.id === modelId) || models[0];
+    
+    if (!selectedModel) {
+      throw new Error(`No language model found. Available: ${models.map(m => m.family).join(', ')}`);
+    }
+
+    console.log(`[PayPilot] Selected model for chat mode: ${selectedModel.family} (${selectedModel.name})`);
+
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+    
+    // Handle abort signal
     if (abortSignal?.aborted) {
       cancellationTokenSource.cancel();
       return;
     }
-    abortSignal?.addEventListener('abort', () => cancellationTokenSource?.cancel());
+    abortSignal?.addEventListener('abort', () => cancellationTokenSource.cancel());
 
-    // Send request
     const response = await selectedModel.sendRequest(
       [vscode.LanguageModelChatMessage.User(prompt)],
-      { justification: 'PayPilot extension language model request' },
+      { justification: 'PayPilot chat streaming request' },
       cancellationTokenSource.token
     );
     
-    // Stream response
+    console.log(`[PayPilot] ✅ Direct API call successful - streaming tokens to UI in chat mode`);
+    
+    let fullResponse = '';
+    let tokenCount = 0;
     for await (const chunk of response.text) {
       if (cancellationTokenSource.token.isCancellationRequested) {
         break;
       }
       fullResponse += chunk;
+      tokenCount++;
       onToken(chunk);
     }
 
     if (!cancellationTokenSource.token.isCancellationRequested) {
-      onDone(fullResponse);
+      console.log(`[PayPilot] ✅ Chat mode complete - streamed ${tokenCount} tokens, total ${fullResponse.length} characters`);
+      onComplete(fullResponse);
+    } else {
+      console.log(`[PayPilot] ⚠️ Chat mode cancelled - partial response with ${tokenCount} tokens`);
     }
+
+    cancellationTokenSource.dispose();
     
   } catch (error) {
     if (error instanceof vscode.LanguageModelError) {
-      onError(new Error(`Language model error: ${error.message}`));
-    } else {
-      onError(error);
+      throw new Error(`Language model error: ${error.message}`);
     }
-  } finally {
-    cancellationTokenSource?.dispose();
+    throw error;
   }
 }

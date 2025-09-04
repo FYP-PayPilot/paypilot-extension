@@ -2,7 +2,8 @@ import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import {
   getAvailableModels,
-  sendLanguageModelRequest,
+  streamChatAgent,
+  streamChatUI,
 } from "./services/languageModel";
 
 // Global state for VS Code native diff management
@@ -17,6 +18,11 @@ let chatPanelVisible: boolean = false; // Track chat panel visibility
 let diffButton: vscode.StatusBarItem | undefined; // "View Diff" button
 let acceptButton: vscode.StatusBarItem | undefined; // "Accept Changes" button
 let rejectButton: vscode.StatusBarItem | undefined; // "Reject Changes" button
+
+// Diff view state management
+let isDiffViewOpen: boolean = false; // Track diff view state
+let savedEditorLayout: any = undefined; // Store editor layout before diff
+let diffViewDisposables: vscode.Disposable[] = []; // Track diff view event listeners
 
 // AI generation cancellation
 let currentAbortController: AbortController | null = null; // For cancelling ongoing AI requests
@@ -143,7 +149,16 @@ async function applyChangesWithVSCodeDiff(newContent: string) {
   }
 
   // Clean up any existing diff state first (for multiple consecutive edits)
+  // Note: Only cleanup status bar items, preserve diff view state if open
+  const wasDiffViewOpen = isDiffViewOpen;
   cleanupStatusBarItems();
+  
+  // If diff was open, we'll need to update it with new content later
+  if (wasDiffViewOpen) {
+    console.log("[PayPilot] Diff view was open, will preserve and update it");
+  } else {
+    console.log("[PayPilot] Applying changes with no diff view currently open");
+  }
 
   // Store current state for diff comparison
   originalContent = editor.document.getText(); // Save content before changes
@@ -220,8 +235,17 @@ async function applyChangesWithVSCodeDiff(newContent: string) {
     }
   }, 100);
 
-  // Show action buttons
+  // Show action buttons (this will now properly restore the diff button state)
   showDiffActionButtons();
+  
+  // If diff view was open, update it with the new content
+  if (wasDiffViewOpen) {
+    console.log("[PayPilot] Diff view state preserved - button should show 'Close Diff'");
+    // The diff view will automatically update since we're using the same file URI
+    // and the content provider will show the new original content
+  } else {
+    console.log("[PayPilot] No diff view was open - button should show 'View Diff'");
+  }
 
   // Store cleanup function reference for global access
   (global as any).paypilotCleanup = cleanupDiffResources;
@@ -243,7 +267,138 @@ async function applyChangesWithVSCodeDiff(newContent: string) {
 }
 
 /**
+ * Save current editor layout state before opening diff
+ */
+async function saveEditorLayout() {
+  console.log("[PayPilot] Saving current editor layout for restoration later");
+  
+  // Get list of currently open tabs
+  const tabGroups = vscode.window.tabGroups.all;
+  savedEditorLayout = {
+    activeTab: vscode.window.activeTextEditor?.document.uri.toString(),
+    tabGroups: tabGroups.map(group => ({
+      tabs: group.tabs.map(tab => ({
+        input: tab.input,
+        isActive: tab.isActive,
+        isPinned: tab.isPinned
+      })),
+      isActive: group.isActive
+    }))
+  };
+  
+  console.log(`[PayPilot] ✅ Saved editor layout with ${tabGroups.length} tab groups`);
+}
+
+/**
+ * Restore previously saved editor layout
+ */
+async function restoreEditorLayout() {
+  if (!savedEditorLayout) {
+    console.log("[PayPilot] ⚠️ No saved layout to restore");
+    return;
+  }
+  
+  console.log("[PayPilot] 🔄 Restoring previous editor layout");
+  
+  try {
+    // Close all tabs first
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    
+    // Reopen the original file if it was active
+    if (savedEditorLayout.activeTab && currentDocumentUri) {
+      await vscode.window.showTextDocument(currentDocumentUri, {
+        viewColumn: vscode.ViewColumn.One,
+        preview: false
+      });
+    }
+    
+    console.log("[PayPilot] ✅ Editor layout restored successfully");
+  } catch (error) {
+    console.error("[PayPilot] ❌ Error restoring editor layout:", error);
+  }
+  
+  savedEditorLayout = undefined;
+}
+
+/**
+ * Setup listeners for diff view state changes
+ */
+function setupDiffViewListeners() {
+  // Clear any existing listeners
+  diffViewDisposables.forEach(disposable => disposable.dispose());
+  diffViewDisposables = [];
+
+  // Listen for tab close events
+  const tabChangeDisposable = vscode.window.tabGroups.onDidChangeTabs(async (event) => {
+    if (!isDiffViewOpen) {
+      return;
+    }
+    
+    // Check if any of the closed tabs was our diff view
+    for (const tab of event.closed) {
+      if (tab.label === "PayPilot Changes (Original ↔ Modified)") {
+        console.log("[PayPilot] Diff view tab was closed by user");
+        await handleDiffViewClosed();
+        break;
+      }
+    }
+  });
+
+  // Listen for active editor changes to detect diff view closure
+  const editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+    if (!isDiffViewOpen) {
+      return;
+    }
+    
+    // Check if we're no longer in a diff view
+    if (editor && !editor.document.uri.toString().includes("PayPilot Changes")) {
+      // Small delay to ensure the diff tab is actually closed
+      setTimeout(async () => {
+        const allTabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
+        const diffTabExists = allTabs.some(tab => 
+          tab.label === "PayPilot Changes (Original ↔ Modified)"
+        );
+        
+        if (!diffTabExists && isDiffViewOpen) {
+          console.log("[PayPilot] Diff view no longer exists, updating state");
+          await handleDiffViewClosed();
+        }
+      }, 100);
+    }
+  });
+
+  diffViewDisposables.push(tabChangeDisposable, editorChangeDisposable);
+}
+
+/**
+ * Handle diff view being closed (either by user or programmatically)
+ */
+async function handleDiffViewClosed() {
+  console.log("[PayPilot] Handling diff view closure - updating button state and restoring layout");
+  
+  isDiffViewOpen = false;
+  diffViewColumn = undefined;
+  
+  // Update button state
+  if (diffButton) {
+    diffButton.text = "$(diff) View Diff";
+    diffButton.tooltip = "View side-by-side diff of PayPilot changes";
+    console.log("[PayPilot] Updated 'Close Diff' button back to 'View Diff'");
+  }
+  
+  // Restore previous layout
+  await restoreEditorLayout();
+  
+  // Clean up listeners
+  diffViewDisposables.forEach(disposable => disposable.dispose());
+  diffViewDisposables = [];
+  
+  console.log("[PayPilot] ✅ Diff view cleanup completed");
+}
+
+/**
  * Toggle side-by-side diff view using VS Code's native diff editor
+ * Enhanced version that hides other files and restores layout on close
  */
 async function openSideBySideDiff() {
   if (!currentDocumentUri || !originalContent) {
@@ -251,61 +406,54 @@ async function openSideBySideDiff() {
     return; // No diff state available
   }
 
-  // Check if diff is already open by trying to close it first
-  if (diffViewColumn !== undefined) {
-    // Close the diff view by focusing on it and closing the tab
-    try {
-      await vscode.commands.executeCommand(
-        "workbench.action.closeActiveEditor"
-      );
-      diffViewColumn = undefined;
-
-      // Update button text to indicate it will open diff
-      if (diffButton) {
-        diffButton.text = "$(diff) View Diff";
-        diffButton.tooltip = "View side-by-side diff of PayPilot changes";
-      }
-
-      console.log("[PayPilot] Diff view closed");
-      return;
-    } catch (error) {
-      console.log(
-        "[PayPilot] Could not close diff view, proceeding to open new one"
-      );
-      diffViewColumn = undefined;
-    }
+  // If diff is already open, close it
+  if (isDiffViewOpen) {
+    console.log("[PayPilot] Closing existing diff view and restoring layout");
+    await handleDiffViewClosed();
+    return;
   }
 
-  console.log("[PayPilot] Opening side-by-side diff");
-
-  // Create URIs for original and modified content using simplified scheme
-  const originalUri = vscode.Uri.parse(
-    `paypilot-original:${currentDocumentUri.path}`
-  );
-
-  console.log("[PayPilot] Original URI:", originalUri.toString());
-  console.log("[PayPilot] Modified URI:", currentDocumentUri.toString());
+  console.log("[PayPilot] Opening enhanced side-by-side diff (full-screen mode)");
 
   try {
-    // Open diff editor using VS Code's built-in diff command
+    // Save current editor layout
+    await saveEditorLayout();
+    
+    // Close all editors to provide clean diff view
+    console.log("[PayPilot] Closing all open editors for clean diff view");
+    await vscode.commands.executeCommand("workbench.action.closeAllEditors");
+    
+    // Create URIs for original and modified content
+    const originalUri = vscode.Uri.parse(
+      `paypilot-original:${currentDocumentUri.path}`
+    );
+
+    console.log("[PayPilot] Original URI:", originalUri.toString());
+    console.log("[PayPilot] Modified URI:", currentDocumentUri.toString());
+
+    // Open diff editor in main column (full screen)
     await vscode.commands.executeCommand(
       "vscode.diff",
       originalUri, // Left side: original content
       currentDocumentUri, // Right side: current content
       "PayPilot Changes (Original ↔ Modified)", // Diff tab title
-      { viewColumn: vscode.ViewColumn.Beside } // Open in new column
+      { viewColumn: vscode.ViewColumn.One } // Open in main column
     );
 
-    // Track that diff is now open
-    diffViewColumn = vscode.ViewColumn.Beside;
+    // Update state
+    isDiffViewOpen = true;
+    diffViewColumn = vscode.ViewColumn.One;
+    
+    // Setup listeners for detecting when diff is closed
+    setupDiffViewListeners();
 
     // Update button text to indicate it will close diff
     if (diffButton) {
       diffButton.text = "$(x) Close Diff";
-      diffButton.tooltip = "Close diff view";
+      diffButton.tooltip = "Close diff view and restore previous layout";
     }
 
-    console.log("[PayPilot] Diff editor opened successfully");
+    console.log("[PayPilot] Enhanced diff editor opened successfully in full-screen mode");
   } catch (error) {
     console.error("[PayPilot] Error opening diff editor:", error);
     vscode.window.showErrorMessage(
@@ -313,6 +461,10 @@ async function openSideBySideDiff() {
         error instanceof Error ? error.message : String(error)
       }`
     );
+    
+    // Restore layout if opening failed
+    console.log("[PayPilot] Restoring layout due to diff opening failure");
+    await restoreEditorLayout();
   }
 }
 
@@ -325,17 +477,33 @@ function showDiffActionButtons() {
     return;
   }
 
+  // Store current diff state before cleanup
+  const wasDiffOpen = isDiffViewOpen;
+
   // Clean up any existing buttons first
   cleanupStatusBarItems(); // Prevent duplicate buttons
+
+  // Restore diff state after cleanup (cleanupStatusBarItems resets isDiffViewOpen)
+  isDiffViewOpen = wasDiffOpen;
 
   // Create status bar items
   diffButton = vscode.window.createStatusBarItem(
     vscode.StatusBarAlignment.Right,
     2001
   );
-  diffButton.text = "$(diff) View Diff";
+  
+  // Set button text based on current diff state
+  if (isDiffViewOpen) {
+    diffButton.text = "$(x) Close Diff";
+    diffButton.tooltip = "Close diff view and restore previous layout";
+    console.log("[PayPilot] 🔄 Recreated button with 'Close Diff' state (diff was open)");
+  } else {
+    diffButton.text = "$(diff) View Diff";
+    diffButton.tooltip = "Open side-by-side diff view";
+    console.log("[PayPilot] 🔄 Recreated button with 'View Diff' state (diff was closed)");
+  }
+  
   diffButton.command = "paypilot.openDiff"; // Command to open side-by-side diff
-  diffButton.tooltip = "Open side-by-side diff view";
   diffButton.show();
 
   acceptButton = vscode.window.createStatusBarItem(
@@ -382,7 +550,7 @@ function cleanupStatusBarItems() {
     rejectButton = undefined;
   }
 
-  // Reset diff view tracking
+  // Note: Don't reset isDiffViewOpen here as it might be called during button recreation
   diffViewColumn = undefined;
 
   console.log("[PayPilot] Status bar items cleaned up");
@@ -396,6 +564,15 @@ function cleanupDiffResources() {
 
   // Clean up status bar items
   cleanupStatusBarItems(); // Remove all diff buttons
+
+  // Clean up diff view listeners
+  diffViewDisposables.forEach(disposable => disposable.dispose());
+  diffViewDisposables = [];
+
+  // Reset diff view state (this is where we properly reset the state)
+  isDiffViewOpen = false;
+  diffViewColumn = undefined;
+  savedEditorLayout = undefined;
 
   // Clean up source control
   if (sourceControl) {
@@ -424,7 +601,16 @@ function cleanupDiffResources() {
  * Accept all changes (keep the modified content)
  */
 async function acceptChanges() {
-  cleanupDiffResources(); // Remove diff UI and keep current content
+  console.log("[PayPilot] Accepting changes");
+  
+  // If diff view is open, close it gracefully and restore layout
+  if (isDiffViewOpen) {
+    console.log("[PayPilot] Closing diff view and restoring layout after accepting changes");
+    await handleDiffViewClosed();
+  }
+  
+  // Clean up all diff resources
+  cleanupDiffResources();
   vscode.window.showInformationMessage("Changes accepted successfully");
 }
 
@@ -432,6 +618,8 @@ async function acceptChanges() {
  * Reject all changes (restore original content)
  */
 async function rejectChanges() {
+  console.log("[PayPilot] Rejecting changes");
+  
   const editor = vscode.window.activeTextEditor;
   if (!editor || !originalContent) {
     return; // No editor or original content
@@ -446,7 +634,14 @@ async function rejectChanges() {
     editBuilder.replace(fullRange, originalContent); // Revert to original
   });
 
-  cleanupDiffResources(); // Remove diff UI after reverting
+  // If diff view is open, close it gracefully and restore layout
+  if (isDiffViewOpen) {
+    console.log("[PayPilot] Closing diff view and restoring layout after rejecting changes");
+    await handleDiffViewClosed();
+  }
+
+  // Clean up all diff resources
+  cleanupDiffResources();
   vscode.window.showInformationMessage("Changes rejected successfully");
 }
 
@@ -526,7 +721,7 @@ export async function activate(context: vscode.ExtensionContext) {
         // Use specified model or first available model
         let modelId = msg.model;
         if (!modelId) {
-          const availableModels = await getAvailableModels(context);
+          const availableModels = await getAvailableModels();
           if (availableModels.length === 0) {
             panel.postMessage({
               type: "chat:error",
@@ -538,7 +733,7 @@ export async function activate(context: vscode.ExtensionContext) {
           modelId = availableModels[0].id;
         }
 
-        const editor = vscode.window.activeTextEditor;
+        const editor = vscode.window.activeTextEditor; // Get current active editor for context for llm
         const cfg = vscode.workspace.getConfiguration("paypilot");
         const maxContextChars = Math.max(
           0,
@@ -629,140 +824,138 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (mode === "agent") {
           // Agent mode: Show working indicator instead of streaming
+          console.log(`[PayPilot] 🤖 Starting AGENT MODE - using new direct API implementation`);
           panel.postMessage({
             type: "chat:working",
             message: "Analyzing code and preparing changes...",
           });
 
-          // Make API call without streaming for agent mode
-          await sendLanguageModelRequest(
-            {
+          try {
+            // Make API call without streaming for agent mode
+            const fullResponse = await streamChatAgent(
               modelId,
-              prompt: composed,
-              abortSignal: abortController.signal,
-              onToken: (t) => {
-                fullResponse += t; // Build complete response without streaming to UI
-              },
-              onDone: async (full) => {
-                currentAbortController = null; // Clear the controller
+              composed,
+              abortController.signal
+            );
 
-                // Apply code changes if we have an editor and code
-                if (editor) {
-                  const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
-                  const match = full.match(codeBlockRegex);
+            currentAbortController = null; // Clear the controller
 
-                  if (match && match[1]) {
-                    const newContent = match[1].trim();
-                    const originalText = editor.document.getText(); // Get current content
-                    const originalLines = originalText.split("\n");
-                    const newLines = newContent.split("\n");
+            // Apply code changes if we have an editor and code
+            if (editor) {
+              const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
+              const match = fullResponse.match(codeBlockRegex);
 
-                    await applyChangesWithVSCodeDiff(newContent);
+              if (match && match[1]) {
+                const newContent = match[1].trim();
+                const originalText = editor.document.getText(); // Get current content
+                const originalLines = originalText.split("\n");
+                const newLines = newContent.split("\n");
 
-                    // Calculate proper diff stats using LCS-based approach
-                    const diffStats = calculateDiffStats(
-                      originalLines,
-                      newLines
-                    );
+                await applyChangesWithVSCodeDiff(newContent);
 
-                    // Debug logging
-                    console.log("[PayPilot Diff Debug]");
-                    console.log("Original lines:", originalLines.length);
-                    console.log("New lines:", newLines.length);
-                    console.log("Calculated added:", diffStats.added);
-                    console.log("Calculated deleted:", diffStats.deleted);
+                // Calculate proper diff stats using LCS-based approach
+                const diffStats = calculateDiffStats(
+                  originalLines,
+                  newLines
+                );
 
-                    // Extract summary from AI response
-                    let explanation = "";
-                    const summaryMatch = full.match(
-                      /Summary:\s*(.+?)(?:\n|$)/i
-                    );
-                    if (summaryMatch && summaryMatch[1]) {
-                      explanation = summaryMatch[1].trim();
-                    } else {
-                      // Fallback: extract text outside code blocks
-                      const aiExplanation = full
-                        .replace(/```[a-zA-Z0-9_-]*\s*[\s\S]*?```/g, "")
-                        .trim();
-                      explanation =
-                        aiExplanation.length > 20 ? aiExplanation : "";
-                    }
+                // Debug logging
+                console.log("[PayPilot Diff Debug]");
+                console.log("Original lines:", originalLines.length);
+                console.log("New lines:", newLines.length);
+                console.log("Calculated added:", diffStats.added);
+                console.log("Calculated deleted:", diffStats.deleted);
 
-                    // Generate a smart summary if no explanation
-                    if (
-                      !explanation &&
-                      (diffStats.added > 0 || diffStats.deleted > 0)
-                    ) {
-                      const changes = [];
-                      if (diffStats.added > 0)
-                        {changes.push(
-                          `${diffStats.added} line${
-                            diffStats.added > 1 ? "s" : ""
-                          } added`
-                        );}
-                      if (diffStats.deleted > 0)
-                        {changes.push(
-                          `${diffStats.deleted} line${
-                            diffStats.deleted > 1 ? "s" : ""
-                          } removed`
-                        );}
-                      explanation = `Updated code: ${changes.join(", ")}`;
-                    }
-
-                    // Send code applied message
-                    panel.postMessage({
-                      type: "chat:code-applied",
-                      fileName:
-                        editor.document.fileName.split("/").pop() ||
-                        "Unknown file",
-                      filePath: editor.document.uri.fsPath,
-                      linesAdded: diffStats.added,
-                      linesDeleted: diffStats.deleted,
-                      explanation,
-                    });
-                  } else {
-                    // No code found, send as regular done message
-                    panel.postMessage({ type: "chat:done", text: full });
-                  }
+                // Extract summary from AI response
+                let explanation = "";
+                const summaryMatch = fullResponse.match(
+                  /Summary:\s*(.+?)(?:\n|$)/i
+                );
+                if (summaryMatch && summaryMatch[1]) {
+                  explanation = summaryMatch[1].trim();
                 } else {
-                  panel.postMessage({ type: "chat:done", text: full });
+                  // Fallback: extract text outside code blocks
+                  const aiExplanation = fullResponse
+                    .replace(/```[a-zA-Z0-9_-]*\s*[\s\S]*?```/g, "")
+                    .trim();
+                  explanation =
+                    aiExplanation.length > 20 ? aiExplanation : "";
                 }
-              },
-              onError: (err) => {
-                currentAbortController = null; // Clear the controller
+
+                // Generate a smart summary if no explanation
+                if (
+                  !explanation &&
+                  (diffStats.added > 0 || diffStats.deleted > 0)
+                ) {
+                  const changes = [];
+                  if (diffStats.added > 0) {
+                    changes.push(
+                      `${diffStats.added} line${
+                        diffStats.added > 1 ? "s" : ""
+                      } added`
+                    );
+                  }
+                  if (diffStats.deleted > 0) {
+                    changes.push(
+                      `${diffStats.deleted} line${
+                        diffStats.deleted > 1 ? "s" : ""
+                      } removed`
+                    );
+                  }
+                  explanation = `Updated code: ${changes.join(", ")}`;
+                }
+
+                // Send code applied message
                 panel.postMessage({
-                  type: "chat:error",
-                  error: err instanceof Error ? err.message : String(err), // Send error to UI
+                  type: "chat:code-applied",
+                  fileName:
+                    editor.document.fileName.split("/").pop() ||
+                    "Unknown file",
+                  filePath: editor.document.uri.fsPath,
+                  linesAdded: diffStats.added,
+                  linesDeleted: diffStats.deleted,
+                  explanation,
                 });
-              },
-            },
-            context
-          );
+              } else {
+                // No code found, send as regular done message
+                panel.postMessage({ type: "chat:done", text: fullResponse });
+              }
+            } else {
+              panel.postMessage({ type: "chat:done", text: fullResponse });
+            }
+          } catch (agentError) {
+            currentAbortController = null;
+            console.error("Error in agent mode:", agentError);
+            panel.postMessage({
+              type: "chat:error",
+              error: agentError instanceof Error ? agentError.message : String(agentError),
+            });
+          }
         } else {
-          // Ask mode: Continue with streaming as before
-          await sendLanguageModelRequest(
-            {
+          // Ask mode: Continue with streaming
+          console.log(`[PayPilot] Starting Ask Mode`);
+          try {
+            await streamChatUI(
               modelId,
-              prompt: composed,
-              abortSignal: abortController.signal,
-              onToken: (t) => {
-                fullResponse += t; // Build complete response
-                panel.postMessage({ type: "chat:stream", token: t }); // Stream to UI
+              composed,
+              (token: string) => {
+                fullResponse += token;
+                panel.postMessage({ type: "chat:stream", token });
               },
-              onDone: async (full) => {
-                currentAbortController = null; // Clear the controller
-                panel.postMessage({ type: "chat:done", text: full }); // Notify UI completion
+              (fullText: string) => {
+                currentAbortController = null;
+                panel.postMessage({ type: "chat:done", text: fullText });
               },
-              onError: (err) => {
-                currentAbortController = null; // Clear the controller
-                panel.postMessage({
-                  type: "chat:error",
-                  error: err instanceof Error ? err.message : String(err), // Send error to UI
-                });
-              },
-            },
-            context
-          );
+              abortController.signal
+            );
+          } catch (chatError) {
+            currentAbortController = null;
+            console.error("Error in chat mode:", chatError);
+            panel.postMessage({
+              type: "chat:error",
+              error: chatError instanceof Error ? chatError.message : String(chatError),
+            });
+          }
         }
       } catch (error) {
         currentAbortController = null; // Clear the controller on any error
@@ -784,8 +977,10 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     } else if (msg?.type === "model:list-request") {
       // Handle request for available models
+      console.log(`[PayPilot] Loading available models`);
       try {
-        const models = await getAvailableModels(context);
+        const models = await getAvailableModels();
+        console.log(`[PayPilot] Successfully loaded ${models.length} models`);
         panel.postMessage({
           type: "model:list",
           models,

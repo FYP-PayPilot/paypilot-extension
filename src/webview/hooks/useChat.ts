@@ -7,7 +7,7 @@ import { useVSCode } from '../context/VSCodeContext';
  */
 export const useChat = () => {
   const { postMessage, onMessage } = useVSCode();
-  
+
   const [state, setState] = useState<ChatState>({
     messages: [],
     isLoading: false, // Tracks active AI generation for UI state

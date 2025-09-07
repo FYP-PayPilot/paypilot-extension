@@ -9,6 +9,7 @@ export interface ChatAskMessage {
   prompt: string;                      // User's input message
   mode: 'agent' | 'ask';              // Response mode: code generation vs Q&A
   model: string;                       // Selected model identifier
+  contextFiles?: ContextFile[];
 }
 
 export interface ChatStopMessage {
@@ -35,13 +36,35 @@ export interface FileOpenMessage {
   filePath: string;
 }
 
-export type WebviewToExtensionMessage = 
-  | ChatAskMessage 
+export interface ContextRequestMessage {
+  type: 'context:request';
+}
+
+export interface ContextAddMessage {
+  type: 'context:add';
+  filePaths: string[];
+}
+
+export interface ContextRemoveMessage {
+  type: 'context:remove';
+  filePath: string;
+}
+
+export interface ContextClearMessage {
+  type: 'context:clear';
+}
+
+export type WebviewToExtensionMessage =
+  | ChatAskMessage
   | ChatStopMessage
   | ModelChangeMessage
   | ModelListRequestMessage
   | DiffActionMessage
-  | FileOpenMessage;
+  | FileOpenMessage
+  | ContextRequestMessage
+  | ContextAddMessage
+  | ContextRemoveMessage
+  | ContextClearMessage;
 
 // Messages sent from extension to webview (streaming responses)
 export interface ChatStreamMessage {

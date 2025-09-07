@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
+import { ContextButton } from './ContextButton';
 import { IoSend, IoStop } from 'react-icons/io5';
 import { HiSparkles, HiChevronDown } from 'react-icons/hi2';
 import { BsQuestionLg } from 'react-icons/bs';
-import { ModelInfo } from '../../../types/chat';
+import { ModelInfo, ContextFile } from '../../../types/chat';
 
 interface ChatInputProps {
   onSendMessage: (message: string, mode: 'agent' | 'ask') => void;
@@ -16,6 +17,8 @@ interface ChatInputProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
   availableModels: ModelInfo[];
+  contextFiles: ContextFile[];
+  onAddContext: () => void;
 }
 
 /**
@@ -30,7 +33,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onModeChange,
   selectedModel,
   onModelChange,
-  availableModels
+  availableModels,
+  contextFiles,
+  onAddContext
 }) => {
   const [inputValue, setInputValue] = useState('');
 
@@ -89,6 +94,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <span>Press ⌘+Enter to send</span>
             </div>
           )}
+        </div>
+        
+        {/* Add Context button */}
+        <div className="context-button-container">
+          <ContextButton 
+            onClick={onAddContext}
+            disabled={disabled}
+          />
         </div>
       </div>
 

@@ -554,6 +554,127 @@ html, body, #root {
   background: var(--surface-hover);
 }
 
+.context-button-container {
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.context-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--foreground);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.context-button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-hover);
+}
+
+.context-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Context List Styles */
+.context-list {
+  margin: 0 var(--space-lg) var(--space-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.context-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  background: color-mix(in srgb, var(--surface) 80%, var(--foreground) 5%);
+  border-bottom: 1px solid var(--border);
+}
+
+.context-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.clear-all-button {
+  font-size: 11px;
+  padding: 4px 8px;
+  height: auto;
+  min-height: auto;
+}
+
+.context-files {
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.context-file {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.2s ease;
+}
+
+.context-file:last-child {
+  border-bottom: none;
+}
+
+.context-file:hover {
+  background: color-mix(in srgb, var(--surface) 90%, var(--foreground) 5%);
+}
+
+.context-file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.context-file-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-file-size {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.remove-file-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  font-size: 11px;
+  min-width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
 .input-hints {
   font-size: 11px;
   color: var(--muted);

@@ -366,6 +366,10 @@ export const useChat = () => {
     setMode,
     availableModels,
     selectedModel,
-    onModelChange: handleModelChange
+    onModelChange: handleModelChange,
+    contextFiles: state.contextFiles,
+    handleAddContext,
+    removeContextFile,
+    clearAllContext,
   };
 };

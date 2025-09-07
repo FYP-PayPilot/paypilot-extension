@@ -347,27 +347,36 @@ function setupDiffViewListeners() {
   );
 
   // Listen for active editor changes to detect diff view closure
-  const editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor(async (editor) => {
+  const editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor(
+    async (editor) => {
     if (!isDiffViewOpen) {
       return;
     }
     
     // Check if we're no longer in a diff view
-    if (editor && !editor.document.uri.toString().includes("PayPilot Changes")) {
+      if (
+        editor &&
+        !editor.document.uri.toString().includes("PayPilot Changes")
+      ) {
       // Small delay to ensure the diff tab is actually closed
       setTimeout(async () => {
-        const allTabs = vscode.window.tabGroups.all.flatMap(group => group.tabs);
-        const diffTabExists = allTabs.some(tab => 
-          tab.label === "PayPilot Changes (Original ↔ Modified)"
+          const allTabs = vscode.window.tabGroups.all.flatMap(
+            (group) => group.tabs
+          );
+          const diffTabExists = allTabs.some(
+            (tab) => tab.label === "PayPilot Changes (Original ↔ Modified)"
         );
         
         if (!diffTabExists && isDiffViewOpen) {
-          console.log("[PayPilot] Diff view no longer exists, updating state");
+            console.log(
+              "[PayPilot] Diff view no longer exists, updating state"
+            );
           await handleDiffViewClosed();
         }
       }, 100);
     }
-  });
+    }
+  );
 
   diffViewDisposables.push(tabChangeDisposable, editorChangeDisposable);
 }

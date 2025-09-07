@@ -152,7 +152,7 @@ async function applyChangesWithVSCodeDiff(newContent: string) {
   // Note: Only cleanup status bar items, preserve diff view state if open
   const wasDiffViewOpen = isDiffViewOpen;
   cleanupStatusBarItems();
-  
+
   // If diff was open, we'll need to update it with new content later
   if (wasDiffViewOpen) {
     console.log("[PayPilot] Diff view was open, will preserve and update it");
@@ -785,6 +785,27 @@ export async function activate(context: vscode.ExtensionContext) {
           }
         }
 
+        //Build context files content
+        let contextFilesContent = "";
+        if (msg.contextFiles && msg.contextFiles.length > 0) {
+          const contextSections = msg.contextFiles.map((file: any) => {
+            return [
+              `--- ${file.fileName} ---`,
+              `Path: ${file.filePath}`,
+              file.content || "// File content not available",
+              `--- End of ${file.fileName} ---`,
+              "",
+            ].join("\n");
+          });
+
+          contextFilesContent = [
+            "--- Additional Context Files ---",
+            ...contextSections,
+            "--- End of Additional Context Files ---",
+            "",
+          ].join("\n");
+        }
+
         const mode = msg.mode || "ask"; // Default to 'ask' mode
 
         // Compose the prompt based on mode (agent vs ask)
@@ -807,11 +828,14 @@ export async function activate(context: vscode.ExtensionContext) {
             "",
             editorContext ? "--- Current file context ---" : "",
             editorContext || "",
-            editorContext ? "--- End of context ---" : "",
+            editorContext ? "--- End of current file context ---" : "",
             "",
+            contextFilesContent, //Include context files
             "User request:",
             msg.prompt,
-          ].join("\n");
+          ]
+            .filter((line) => line !== "")
+            .join("\n"); // Filter out empty strings
         } else {
           // Ask mode: Answer questions and provide help
           composed = [
@@ -820,11 +844,14 @@ export async function activate(context: vscode.ExtensionContext) {
             "",
             editorContext ? "--- Current file context ---" : "",
             editorContext || "",
-            editorContext ? "--- End of context ---" : "",
+            editorContext ? "--- End of current file context ---" : "",
             "",
+            contextFilesContent, //Include context files
             "User question:",
             msg.prompt,
-          ].join("\n");
+          ]
+            .filter((line) => line !== "")
+            .join("\n"); // Filter out empty strings
         }
 
         let fullResponse = ""; // Accumulate streaming response
@@ -835,7 +862,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
         if (mode === "agent") {
           // Agent mode: Show working indicator instead of streaming
-          console.log(`[PayPilot] 🤖 Starting AGENT MODE - using new direct API implementation`);
+          console.log(
+            `[PayPilot] 🤖 Starting AGENT MODE - using new direct API implementation`
+          );
           panel.postMessage({
             type: "chat:working",
             message: "Analyzing code and preparing changes...",
@@ -1016,6 +1045,192 @@ export async function activate(context: vscode.ExtensionContext) {
         console.error("Error opening file:", error);
         vscode.window.showErrorMessage(`Failed to open file: ${msg.filePath}`);
       }
+    } else if (msg?.type === "context:request") {
+      // Handle context file request - show VS Code workspace file picker
+      try {
+        // Get all files in the workspace
+        const workspaceFiles = await vscode.workspace.findFiles(
+          "**/*", // Include all files
+          "**/node_modules/**" // Exclude node_modules
+        );
+
+        if (workspaceFiles.length === 0) {
+          vscode.window.showInformationMessage("No files found in workspace");
+          return;
+        }
+
+        // Create quick pick items from workspace files
+        const quickPickItems = workspaceFiles.map((file) => {
+          const workspaceFolder = vscode.workspace.getWorkspaceFolder(file);
+          const relativePath = workspaceFolder
+            ? vscode.workspace.asRelativePath(file, false)
+            : file.fsPath;
+
+          return {
+            label: file.path.split("/").pop() || file.fsPath,
+            description: relativePath,
+            detail: file.fsPath,
+            uri: file,
+          };
+        });
+
+        // Add option to browse external files
+        quickPickItems.unshift({
+          label: "📁 Browse files outside workspace...",
+          description: "Select files from anywhere on your system",
+          detail: "Open file browser",
+          uri: null as any, // Special marker for browse option
+        });
+
+        // Sort workspace files by file name for better UX (keeping browse option at top)
+        const browseOption = quickPickItems.shift();
+        quickPickItems.sort((a, b) => a.label.localeCompare(b.label));
+        quickPickItems.unshift(browseOption!);
+
+        // Show quick pick for file selection
+        const selectedItems = await vscode.window.showQuickPick(
+          quickPickItems,
+          {
+            canPickMany: true,
+            placeHolder: "Select files to add to context",
+            matchOnDescription: true,
+            matchOnDetail: true,
+          }
+        );
+
+        if (selectedItems && selectedItems.length > 0) {
+          // Check if user selected the browse option
+          const browseOptionSelected = selectedItems.some((item) => !item.uri);
+          const workspaceFilesSelected = selectedItems.filter(
+            (item) => item.uri
+          );
+
+          let contextFiles: any[] = [];
+
+          // Process workspace files
+          if (workspaceFilesSelected.length > 0) {
+            const workspaceContextFiles = await Promise.all(
+              workspaceFilesSelected.map(async (item) => {
+                try {
+                  const content = await vscode.workspace.fs.readFile(item.uri!);
+                  const contentStr = Buffer.from(content).toString("utf8");
+                  const stats = await vscode.workspace.fs.stat(item.uri!);
+
+                  return {
+                    filePath: item.uri!.fsPath,
+                    fileName: item.label,
+                    content: contentStr,
+                    size: stats.size,
+                  };
+                } catch (error) {
+                  console.error(
+                    `Error reading file ${item.uri!.fsPath}:`,
+                    error
+                  );
+                  return {
+                    filePath: item.uri!.fsPath,
+                    fileName: item.label,
+                    content: `Error reading file: ${error}`,
+                    size: 0,
+                  };
+                }
+              })
+            );
+            contextFiles.push(...workspaceContextFiles);
+          }
+
+          // Handle external file browsing
+          if (browseOptionSelected) {
+            const externalFiles = await vscode.window.showOpenDialog({
+              canSelectFiles: true,
+              canSelectFolders: false,
+              canSelectMany: true,
+              openLabel: "Add to Context",
+              filters: {
+                "All Files": ["*"],
+                "Source Code": [
+                  "js",
+                  "ts",
+                  "jsx",
+                  "tsx",
+                  "py",
+                  "java",
+                  "cpp",
+                  "c",
+                  "h",
+                  "cs",
+                  "php",
+                  "rb",
+                  "go",
+                  "rs",
+                  "swift",
+                  "kt",
+                ],
+                "Text Files": [
+                  "txt",
+                  "md",
+                  "json",
+                  "xml",
+                  "yaml",
+                  "yml",
+                  "csv",
+                ],
+              },
+            });
+
+            if (externalFiles && externalFiles.length > 0) {
+              const externalContextFiles = await Promise.all(
+                externalFiles.map(async (file) => {
+                  try {
+                    const content = await vscode.workspace.fs.readFile(file);
+                    const contentStr = Buffer.from(content).toString("utf8");
+                    const stats = await vscode.workspace.fs.stat(file);
+
+                    return {
+                      filePath: file.fsPath,
+                      fileName: file.path.split("/").pop() || file.fsPath,
+                      content: contentStr,
+                      size: stats.size,
+                    };
+                  } catch (error) {
+                    console.error(`Error reading file ${file.fsPath}:`, error);
+                    return {
+                      filePath: file.fsPath,
+                      fileName: file.path.split("/").pop() || file.fsPath,
+                      content: `Error reading file: ${error}`,
+                      size: 0,
+                    };
+                  }
+                })
+              );
+              contextFiles.push(...externalContextFiles);
+            }
+          }
+
+          // Send the context files to the webview (these will be added to existing ones)
+          if (contextFiles.length > 0) {
+            panel.postMessage({
+              type: "context:add",
+              files: contextFiles,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("Error opening file picker:", error);
+        panel.postMessage({
+          type: "chat:error",
+          error: "Failed to open file picker",
+        });
+      }
+    } else if (msg?.type === "context:add") {
+      // Handle adding specific files to context
+      console.log("Adding files to context:", msg.filePaths);
+    } else if (msg?.type === "context:remove") {
+      // Handle removing a file from context
+      console.log("Removing file from context:", msg.filePath);
+    } else if (msg?.type === "context:clear") {
+      // Handle clearing all context files
+      console.log("Clearing all context files");
     } // End of message handling
   });
 }

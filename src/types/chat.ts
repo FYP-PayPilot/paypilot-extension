@@ -109,26 +109,52 @@ export interface ChatCodeAppliedMessage {
   explanation: string;
 }
 
-export type ExtensionToWebviewMessage = 
-  | ChatStreamMessage 
-  | ChatDoneMessage 
-  | ChatErrorMessage 
+export interface ContextListMessage {
+  type: 'context:list';
+  files: ContextFile[];
+}
+
+export interface ContextAddResponseMessage {
+  type: 'context:add';
+  files: ContextFile[];
+}
+
+export interface ContextFilePickerMessage {
+  type: 'context:file-picker';
+  // No additional data needed - this triggers the file picker
+}
+
+export type ExtensionToWebviewMessage =
+  | ChatStreamMessage
+  | ChatDoneMessage
+  | ChatErrorMessage
   | ChatStoppedMessage
   | ModelListMessage
   | DiffAppliedMessage
   | ChatWorkingMessage
-  | ChatCodeAppliedMessage;
+  | ChatCodeAppliedMessage
+  | ContextListMessage
+  | ContextAddResponseMessage
+  | ContextFilePickerMessage;
 
 // Model information for UI selection
 export interface ModelInfo {
-  id: string;                          // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
-  name: string;                        // Display name for UI
-  vendor: string;                      // Provider (e.g., 'vscode', 'openai', 'microsoft')
-  family?: string;                     // Model family (e.g., 'gpt-4', 'claude')
-  version?: string;                    // Model version
-  maxTokens?: number;                  // Maximum context length
-  description?: string;                // Optional description
-  isExternal: boolean;                 // True for external APIs, false for VS Code built-in
+  id: string; // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
+  name: string; // Display name for UI
+  vendor: string; // Provider (e.g., 'vscode', 'openai', 'microsoft')
+  family?: string; // Model family (e.g., 'gpt-4', 'claude')
+  version?: string; // Model version
+  maxTokens?: number; // Maximum context length
+  description?: string; // Optional description
+  isExternal: boolean; // True for external APIs, false for VS Code built-in
+}
+
+// Context file information
+export interface ContextFile {
+  filePath: string; // Absolute path to the file
+  fileName: string; // Display name (basename)
+  content?: string; // File content (loaded when needed)
+  size?: number; // File size in bytes
 }
 
 // Chat message for UI state management
@@ -153,4 +179,5 @@ export interface ChatState {
   messages: ChatMessage[];
   isLoading: boolean;                  // True during active AI generation
   mode: 'agent' | 'ask';              // Current interaction mode
+  contextFiles: ContextFile[];        // Files added for context
 }

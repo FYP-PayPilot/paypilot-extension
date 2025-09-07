@@ -10,8 +10,9 @@ export const useChat = () => {
   
   const [state, setState] = useState<ChatState>({
     messages: [],
-    isLoading: false,        // Tracks active AI generation for UI state
-    mode: 'ask'
+    isLoading: false, // Tracks active AI generation for UI state
+    mode: "ask",
+    contextFiles: [], // Context files state
   });
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);

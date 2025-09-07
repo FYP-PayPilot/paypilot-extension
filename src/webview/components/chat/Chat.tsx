@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useChat } from '../../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
+import { ContextList } from './ContextList';
 
 /**
  * Main chat component that orchestrates the entire chat interface
@@ -16,7 +17,11 @@ export const Chat: React.FC = () => {
     setMode,
     availableModels,
     selectedModel,
-    onModelChange
+    onModelChange,
+    contextFiles,
+    handleAddContext,
+    removeContextFile,
+    clearAllContext
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -52,6 +57,13 @@ export const Chat: React.FC = () => {
         )}
       </div>
 
+      {/* Context files display */}
+      <ContextList 
+        contextFiles={contextFiles}
+        onRemoveFile={removeContextFile}
+        onClearAll={clearAllContext}
+      />
+
       {/* Input with send/stop functionality and controls footer */}
       <div className="chat-footer">
         <ChatInput
@@ -64,6 +76,8 @@ export const Chat: React.FC = () => {
           selectedModel={selectedModel || ''}
           onModelChange={onModelChange}
           availableModels={availableModels}
+          contextFiles={contextFiles}
+          onAddContext={handleAddContext}
         />
       </div>
     </div>

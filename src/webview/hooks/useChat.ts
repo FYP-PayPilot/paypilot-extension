@@ -65,24 +65,35 @@ export const useChat = () => {
       isStreaming: true                 // Enables real-time content updates
     } : null;
 
-    // Add messages to UI and prepare for streaming
-    setState(prev => ({
+      // Update state with user message and optional assistant placeholder
+      const newMessages = assistantMessage
+        ? [userMessage, assistantMessage]
+        : [userMessage];
+
+      setState((prev) => ({
       ...prev,
-      messages: assistantMessage 
-        ? [...prev.messages, userMessage, assistantMessage]
-        : [...prev.messages, userMessage],
-      isLoading: true,                  // Shows loading state, disables input
-      mode: mode                        // Updates current interaction mode
+        messages: [...prev.messages, ...newMessages],
+        isLoading: true,
+        mode,
     }));
 
     // Trigger AI request - will result in streaming tokens
     postMessage({
       type: 'chat:ask',
       prompt: prompt.trim(),
-      mode: mode,
-      model: selectedModel
+        mode,
+        model: selectedModel,
+        contextFiles: state.contextFiles, // Include context files in message
     });
-  }, [state.isLoading, generateMessageId, postMessage, selectedModel]);
+    },
+    [
+      state.isLoading,
+      selectedModel,
+      postMessage,
+      generateMessageId,
+      state.contextFiles,
+    ] // Add contextFiles to dependencies
+  );
 
   // Interrupt ongoing AI generation
   const stopGeneration = useCallback(() => {

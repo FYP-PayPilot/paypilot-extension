@@ -322,6 +322,35 @@ export const useChat = () => {
           }
           break;
 
+        case "context:list":
+          // Handle context files list update (replace all)
+          setState((prev) => ({
+            ...prev,
+            contextFiles: message.files,
+          }));
+          break;
+
+        case "context:add":
+          // Handle adding new context files (merge with existing)
+          setState((prev) => {
+            const existingPaths = new Set(
+              prev.contextFiles.map((f) => f.filePath)
+            );
+            const newFiles = message.files.filter(
+              (f) => !existingPaths.has(f.filePath)
+            );
+
+            return {
+              ...prev,
+              contextFiles: [...prev.contextFiles, ...newFiles],
+            };
+          });
+          break;
+
+        case "context:file-picker":
+          // File picker opened - no UI state change needed
+          break;
+
         default:
           break;
       }

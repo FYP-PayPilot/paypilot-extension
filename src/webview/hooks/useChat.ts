@@ -183,7 +183,7 @@ export const useChat = () => {
               content: message.message,
               role: 'assistant',
               timestamp: Date.now(),
-              isWorking: true
+              isWorking: true,
             };
             messages.push(workingMessage);
             return { ...prev, messages, isLoading: true };

@@ -141,6 +141,33 @@ export const useChat = () => {
       type: 'model:change',
       model: modelId
     });
+    },
+    [postMessage]
+  );
+
+  // Handle context file requests
+  const handleAddContext = useCallback(() => {
+    postMessage({ type: "context:request" });
+  }, [postMessage]);
+
+  // Remove a context file
+  const removeContextFile = useCallback(
+    (filePath: string) => {
+      setState((prev) => ({
+        ...prev,
+        contextFiles: prev.contextFiles.filter(
+          (file) => file.filePath !== filePath
+        ),
+      }));
+      postMessage({ type: "context:remove", filePath });
+    },
+    [postMessage]
+  );
+
+  // Clear all context files
+  const clearAllContext = useCallback(() => {
+    setState((prev) => ({ ...prev, contextFiles: [] }));
+    postMessage({ type: "context:clear" });
   }, [postMessage]);
 
   // Real-time message handler - processes streaming tokens and completion events

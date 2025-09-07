@@ -325,11 +325,12 @@ async function restoreEditorLayout() {
  */
 function setupDiffViewListeners() {
   // Clear any existing listeners
-  diffViewDisposables.forEach(disposable => disposable.dispose());
+  diffViewDisposables.forEach((disposable) => disposable.dispose());
   diffViewDisposables = [];
 
   // Listen for tab close events
-  const tabChangeDisposable = vscode.window.tabGroups.onDidChangeTabs(async (event) => {
+  const tabChangeDisposable = vscode.window.tabGroups.onDidChangeTabs(
+    async (event) => {
     if (!isDiffViewOpen) {
       return;
     }
@@ -342,7 +343,8 @@ function setupDiffViewListeners() {
         break;
       }
     }
-  });
+    }
+  );
 
   // Listen for active editor changes to detect diff view closure
   const editorChangeDisposable = vscode.window.onDidChangeActiveTextEditor(async (editor) => {

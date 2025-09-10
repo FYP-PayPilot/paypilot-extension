@@ -4,7 +4,7 @@ import {
   getAvailableModels,
   streamChatAgent,
   streamChatUI,
-} from "./services/languageModel";
+} from "./services/vscode_http_client";
 
 // Global state for VS Code native diff management
 let originalContent: string = ""; // Content before AI modifications

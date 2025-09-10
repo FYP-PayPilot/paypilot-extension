@@ -8,7 +8,6 @@ import { ModelInfo } from '../types/chat';
  * - Uses vscode.lm.selectChatModels() to discover available models
  * - Direct sendRequest calls with proper error handling
  * - Native streaming through response.text AsyncIterable
- * - Simplified, maintainable code following VS Code best practices
  */
 
 /**
@@ -27,11 +26,10 @@ export async function getAvailableModels(): Promise<ModelInfo[]> {
       return [];
     }
 
-    // Convert VS Code model objects to our standardized ModelInfo format
-    // This is needed because:
-    // 1. Our React UI expects the ModelInfo interface structure
-    // 2. VS Code models have different property names/organization
-    // 3. We want consistent model representation across the extension
+    // Convert VS Code model objects to ModelInfo format
+    // - React UI expects the ModelInfo interface structure
+    // - VS Code models have different property names/organization
+    // - For consistent model representation across the extension
     const models: ModelInfo[] = vscodeModels.map(model => ({
       id: model.id,
       name: model.name || model.family || 'Unknown Model',
@@ -64,10 +62,10 @@ export async function streamChatAgent(
   prompt: string,
   abortSignal?: AbortSignal
 ): Promise<string> {
-  console.log(`[PayPilot] 🚀 Using NEW DIRECT API - streamChatAgent with model: ${modelId}`);
+  console.log(`[PayPilot] Using streamChatAgent with model: ${modelId}`);
   try {
-    const models = await vscode.lm.selectChatModels();
-    const selectedModel = models.find(m => m.family === modelId || m.id === modelId) || models[0];
+    const models = await vscode.lm.selectChatModels(); // Get all available models
+    const selectedModel = models.find(m => m.family === modelId || m.id === modelId) || models[0]; 
     
     if (!selectedModel) {
       throw new Error(`No language model found. Available: ${models.map(m => m.family).join(', ')}`);

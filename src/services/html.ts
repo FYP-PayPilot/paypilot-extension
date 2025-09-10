@@ -8,7 +8,6 @@ import * as path from 'path';
  * Generates complete HTML documents for the webview panel that contains the React chat interface.
  * Handles security (CSP, nonces), CSS embedding, and proper VS Code webview integration.
  * 
- * HOW IT WORKS WITH REACT:
  * 1. This service creates an HTML document with a <div id="root"> element
  * 2. The bundled React app (from src/webview/) is loaded via a <script> tag
  * 3. React mounts to the #root element and renders the entire chat interface

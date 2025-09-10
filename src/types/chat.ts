@@ -3,7 +3,7 @@
  * Defines the streaming protocol for real-time AI responses
  */
 
-// Messages sent from webview to extension
+/** Sent from ChatInput component when user submits a message */
 export interface ChatAskMessage {
   type: 'chat:ask';                    // Initiates AI chat request
   prompt: string;                      // User's input message
@@ -12,94 +12,98 @@ export interface ChatAskMessage {
   contextFiles?: ContextFile[];
 }
 
+/** Sent from ChatInput stop button to cancel AI generation */
 export interface ChatStopMessage {
   type: 'chat:stop';                   // Cancels ongoing AI generation
 }
 
+/** Sent from ChatInput model dropdown to change selected model */
 export interface ModelChangeMessage {
   type: 'model:change';                // Updates selected model
   model: string;                       // New model identifier
 }
 
+/** Sent from useChat hook on mount to load available models */
 export interface ModelListRequestMessage {
   type: 'model:list-request';          // Requests available models
 }
 
-export interface DiffActionMessage {
-  type: 'diff:action';
-  action: 'keep' | 'undo';
-  lineNumber?: number;                 // undefined means all changes
-}
-
+/** Sent from CodeAppliedCard when user clicks to open file */
 export interface FileOpenMessage {
   type: 'file:open';
   filePath: string;
 }
 
+/** Sent from ContextButton when user wants to add context files */
 export interface ContextRequestMessage {
   type: 'context:request';
 }
 
+/** Not directly sent - used for file picker flow */
 export interface ContextAddMessage {
   type: 'context:add';
   filePaths: string[];
 }
 
+/** Sent from ContextList when user removes a context file */
 export interface ContextRemoveMessage {
   type: 'context:remove';
   filePath: string;
 }
 
+/** Sent from ContextList when user clears all context files */
 export interface ContextClearMessage {
   type: 'context:clear';
 }
 
+/** Union type used in VSCodeContext for type-safe message routing */
 export type WebviewToExtensionMessage =
   | ChatAskMessage
   | ChatStopMessage
   | ModelChangeMessage
   | ModelListRequestMessage
-  | DiffActionMessage
   | FileOpenMessage
   | ContextRequestMessage
   | ContextAddMessage
   | ContextRemoveMessage
   | ContextClearMessage;
 
-// Messages sent from extension to webview (streaming responses)
+/** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
   type: 'chat:stream';                 // Real-time token delivery from AI
   token: string;                       // Individual word/character from response
 }
 
+/** Sent when AI response completes - triggers final UI state update */
 export interface ChatDoneMessage {
   type: 'chat:done';                   // Signals completion of streaming
   text: string;                        // Final complete response text
 }
 
+/** Sent on AI request failures - displays error in chat */
 export interface ChatErrorMessage {
   type: 'chat:error';                  // Error during AI request/streaming
   error: string;
 }
 
+/** Sent when user stops generation - confirms stop action completed */
 export interface ChatStoppedMessage {
   type: 'chat:stopped';                // Confirms manual stop was processed
 }
 
+/** Response to ModelListRequestMessage - populates model dropdown */
 export interface ModelListMessage {
   type: 'model:list';                  // Available models response
   models: ModelInfo[];
 }
 
-export interface DiffAppliedMessage {
-  type: 'diff:applied';
-}
-
+/** Sent during agent mode to show working state before code generation */
 export interface ChatWorkingMessage {
   type: 'chat:working';
   message: string;
 }
 
+/** Sent after agent mode applies code - shows CodeAppliedCard component */
 export interface ChatCodeAppliedMessage {
   type: 'chat:code-applied';
   fileName: string;
@@ -109,35 +113,38 @@ export interface ChatCodeAppliedMessage {
   explanation: string;
 }
 
+/** Sent to update context files list in UI */
 export interface ContextListMessage {
   type: 'context:list';
   files: ContextFile[];
 }
 
+/** Sent to add new files to context - merges with existing */
 export interface ContextAddResponseMessage {
   type: 'context:add';
   files: ContextFile[];
 }
 
+/** Triggers file picker UI (not used - handled directly in extension) */
 export interface ContextFilePickerMessage {
   type: 'context:file-picker';
   // No additional data needed - this triggers the file picker
 }
 
+/** Union type used in VSCodeContext for type-safe message routing */
 export type ExtensionToWebviewMessage =
   | ChatStreamMessage
   | ChatDoneMessage
   | ChatErrorMessage
   | ChatStoppedMessage
   | ModelListMessage
-  | DiffAppliedMessage
   | ChatWorkingMessage
   | ChatCodeAppliedMessage
   | ContextListMessage
   | ContextAddResponseMessage
   | ContextFilePickerMessage;
 
-// Model information for UI selection
+/** Used in ChatInput dropdown and languageModel service */
 export interface ModelInfo {
   id: string; // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
   name: string; // Display name for UI
@@ -150,6 +157,7 @@ export interface ModelInfo {
 }
 
 // Context file information
+/** Used in ContextList, ContextButton, and chat state management */
 export interface ContextFile {
   filePath: string; // Absolute path to the file
   fileName: string; // Display name (basename)
@@ -157,7 +165,7 @@ export interface ContextFile {
   size?: number; // File size in bytes
 }
 
-// Chat message for UI state management
+/** Core message type used throughout ChatMessage component and useChat hook */
 export interface ChatMessage {
   id: string;
   content: string;                     // Accumulated content during streaming
@@ -174,7 +182,7 @@ export interface ChatMessage {
   };
 }
 
-// Application state
+/** Main state interface used in useChat hook for chat UI management */
 export interface ChatState {
   messages: ChatMessage[];
   isLoading: boolean;                  // True during active AI generation

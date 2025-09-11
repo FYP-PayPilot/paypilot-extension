@@ -35,6 +35,107 @@ let activeServers: string[] = []; // Track selected MCP servers
 let diffViewColumn: vscode.ViewColumn | undefined; // Track if diff view is open
 
 /**
+ * Parse multiple file modifications from AI response
+ * Handles cases where AI provides multiple File:/Summary:/Code blocks
+ */
+function parseMultipleFileModifications(response: string, contextFiles: any[]): Array<{
+  fileName: string;
+  filePath: string;
+  content: string;
+  summary?: string;
+}> {
+  const modifications: Array<{
+    fileName: string;
+    filePath: string;
+    content: string;
+    summary?: string;
+  }> = [];
+
+  // Split response into sections by File: directives
+  const fileDirectiveRegex = /File:\s*([^\n\r]+)/gi;
+  const matches = [...response.matchAll(fileDirectiveRegex)];
+  
+  if (matches.length === 0) {
+    // Fallback: try single code block without file directive
+    const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
+    const codeMatch = response.match(codeBlockRegex);
+    if (codeMatch && codeMatch[1]) {
+      // Use current active editor if available
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor) {
+        return [{
+          fileName: activeEditor.document.fileName.split('/').pop() || 'Unknown',
+          filePath: activeEditor.document.uri.fsPath,
+          content: codeMatch[1].trim(),
+          summary: 'Code modification'
+        }];
+      }
+    }
+    return [];
+  }
+
+  for (let i = 0; i < matches.length; i++) {
+    const match = matches[i];
+    const fileName = match[1].trim();
+    const startIndex = match.index! + match[0].length;
+    const endIndex = i < matches.length - 1 ? matches[i + 1].index! : response.length;
+    const section = response.substring(startIndex, endIndex);
+
+    // Extract summary
+    const summaryMatch = section.match(/Summary:\s*([^\n\r]+)/i);
+    const summary = summaryMatch ? summaryMatch[1].trim() : undefined;
+
+    // Extract code block
+    const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
+    const codeMatch = section.match(codeBlockRegex);
+    
+    if (codeMatch && codeMatch[1]) {
+      // Resolve file path from context files
+      const resolvedPath = resolveFilePath(fileName, contextFiles);
+      if (resolvedPath) {
+        modifications.push({
+          fileName,
+          filePath: resolvedPath,
+          content: codeMatch[1].trim(),
+          summary
+        });
+      } else {
+        console.warn(`[PayPilot] Could not resolve file path for: ${fileName}`);
+      }
+    }
+  }
+
+  return modifications;
+}
+
+/**
+ * Resolve file name to absolute path using context files
+ */
+function resolveFilePath(fileName: string, contextFiles: any[]): string | null {
+  if (!Array.isArray(contextFiles)) return null;
+  
+  // First try exact fileName match
+  let matchedFile = contextFiles.find((f: any) => f.fileName === fileName);
+  
+  // If no exact match, try path ending match
+  if (!matchedFile) {
+    matchedFile = contextFiles.find((f: any) =>
+      typeof f.filePath === 'string' && 
+      (f.filePath.endsWith('/' + fileName) || f.filePath.endsWith('\\' + fileName))
+    );
+  }
+  
+  // If still no match, try any path that contains the target
+  if (!matchedFile) {
+    matchedFile = contextFiles.find((f: any) =>
+      typeof f.filePath === 'string' && f.filePath.includes(fileName)
+    );
+  }
+  
+  return matchedFile ? matchedFile.filePath : null;
+}
+
+/**
  * TextDocumentContentProvider interface implementation
  * This provides the "left" side of the diff using a custom URI scheme
  */

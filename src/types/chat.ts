@@ -56,6 +56,17 @@ export interface ContextClearMessage {
   type: 'context:clear';
 }
 
+/** Sent from ChatInput MCP checkbox to toggle MCP functionality */
+export interface McpToggleMessage {
+  type: 'mcp:toggle';
+  enabled: boolean;
+}
+
+/** Sent from ChatInput to request available MCP servers */
+export interface GetMcpServersMessage {
+  type: 'mcp:get';
+}
+
 /** Union type used in VSCodeContext for type-safe message routing */
 export type WebviewToExtensionMessage =
   | ChatAskMessage
@@ -66,7 +77,9 @@ export type WebviewToExtensionMessage =
   | ContextRequestMessage
   | ContextAddMessage
   | ContextRemoveMessage
-  | ContextClearMessage;
+  | ContextClearMessage
+  | McpToggleMessage
+  | GetMcpServersMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
@@ -131,6 +144,12 @@ export interface ContextFilePickerMessage {
   // No additional data needed - this triggers the file picker
 }
 
+/** Response with available MCP servers */
+export interface McpServersResponse {
+  type: 'mcp:servers';
+  servers: McpServer[];
+}
+
 /** Union type used in VSCodeContext for type-safe message routing */
 export type ExtensionToWebviewMessage =
   | ChatStreamMessage
@@ -142,7 +161,8 @@ export type ExtensionToWebviewMessage =
   | ChatCodeAppliedMessage
   | ContextListMessage
   | ContextAddResponseMessage
-  | ContextFilePickerMessage;
+  | ContextFilePickerMessage
+  | McpServersResponse;
 
 /** Used in ChatInput dropdown and languageModel service */
 export interface ModelInfo {
@@ -154,6 +174,15 @@ export interface ModelInfo {
   maxTokens?: number; // Maximum context length
   description?: string; // Optional description
   isExternal: boolean; // True for external APIs, false for VS Code built-in
+}
+
+/** MCP Server configuration used in MCP functionality */
+export interface McpServer {
+  name: string;
+  type: string;
+  url?: string;
+  command?: string;
+  args?: string[];
 }
 
 // Context file information

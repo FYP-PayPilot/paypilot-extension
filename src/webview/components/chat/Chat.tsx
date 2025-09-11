@@ -21,7 +21,13 @@ export const Chat: React.FC = () => {
     contextFiles,
     handleAddContext,
     removeContextFile,
-    clearAllContext
+    clearAllContext,
+    mcpEnabled,
+    onMcpToggle,
+    mcpServers,
+    selectedServers,
+    onServerSelection,
+    onMcpInfo
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -78,6 +84,12 @@ export const Chat: React.FC = () => {
           availableModels={availableModels}
           contextFiles={contextFiles}
           onAddContext={handleAddContext}
+          mcpEnabled={mcpEnabled}
+          onMcpToggle={onMcpToggle}
+          mcpServers={mcpServers}
+          selectedServers={selectedServers}
+          onServerSelection={onServerSelection}
+          onMcpInfo={onMcpInfo}
         />
       </div>
     </div>

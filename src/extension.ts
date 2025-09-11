@@ -27,6 +27,10 @@ let diffViewDisposables: vscode.Disposable[] = []; // Track diff view event list
 // AI generation cancellation
 let currentAbortController: AbortController | null = null; // For cancelling ongoing AI requests
 
+// MCP state management
+let enableMcp: boolean = false; // Track MCP enabled state
+let activeServers: string[] = []; // Track selected MCP servers
+
 // Diff view management
 let diffViewColumn: vscode.ViewColumn | undefined; // Track if diff view is open
 
@@ -657,13 +661,61 @@ async function rejectChanges() {
 }
 
 /**
- * Extension activation function
+ * Ensures the context7 MCP server is configured in VS Code settings
  */
+async function ensureContext7McpServer() {
+  try {
+    const config = vscode.workspace.getConfiguration('mcp');
+    const servers = config.get('servers', {}) as Record<string, any>;
+    
+    // Check if context7 server already exists
+    if (!servers['context7']) {
+      console.log('[PayPilot] Adding context7 MCP server to configuration');
+      
+      const context7Server = {
+        type: 'http',
+        url: 'https://mcp.context7.com/mcp'
+      };
+      
+      servers['context7'] = context7Server;
+      
+      // Update the configuration globally
+      await config.update('servers', servers, vscode.ConfigurationTarget.Global);
+      console.log('[PayPilot] context7 MCP server added successfully');
+    } else {
+      console.log('[PayPilot] context7 MCP server already configured');
+    }
+  } catch (error) {
+    console.error('[PayPilot] Error configuring context7 MCP server:', error);
+  }
+}
+
+/**
+ * Gets available MCP servers from VS Code configuration
+ */
+function getMcpServers(): any[] {
+  try {
+    const config = vscode.workspace.getConfiguration('mcp');
+    const servers = config.get('servers', {}) as Record<string, any>;
+    
+    return Object.keys(servers).map(name => ({
+      name,
+      ...servers[name]
+    }));
+  } catch (error) {
+    console.error('[PayPilot] Error reading MCP servers:', error);
+    return [];
+  }
+}
+
 export async function activate(context: vscode.ExtensionContext) {
   console.log("PayPilot extension is active (VS Code Language Model API)");
 
   // Initialize chat view provider
   const chatProvider = new ChatViewProvider(context);
+
+  // Auto-inject context7 MCP server if not already present
+  await ensureContext7McpServer();
 
   // Register webview view provider for chat panel into extension context
   context.subscriptions.push(
@@ -1231,6 +1283,25 @@ export async function activate(context: vscode.ExtensionContext) {
     } else if (msg?.type === "context:clear") {
       // Handle clearing all context files
       console.log("Clearing all context files");
+    } else if (msg?.type === "mcp:toggle") {
+      // Handle MCP toggle
+      enableMcp = msg.enabled;
+      console.log(`MCP ${enableMcp ? 'enabled' : 'disabled'}`);
+    } else if (msg?.type === "mcp:get") {
+      // Handle MCP servers request
+      try {
+        const servers = getMcpServers();
+        panel.postMessage({
+          type: "mcp:servers",
+          servers: servers
+        });
+      } catch (error) {
+        console.error("Error getting MCP servers:", error);
+        panel.postMessage({
+          type: "chat:error",
+          error: "Failed to load MCP servers"
+        });
+      }
     } // End of message handling
   });
 }

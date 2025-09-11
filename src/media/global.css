@@ -531,6 +531,12 @@ html, body, #root {
   margin-bottom: var(--space-xs);
 }
 
+.context-button-row {
+  display: flex;
+  justify-content: flex-start;
+  margin-bottom: var(--space-sm);
+}
+
 .input-row {
   display: flex;
   gap: var(--space-sm);
@@ -1033,4 +1039,86 @@ html, body, #root {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* MCP Dropdown Styles */
+.mcp-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  min-width: 200px;
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border);
+  border-radius: var(--radius-sm);
+  margin-top: 2px;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 10000;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.mcp-server-option {
+  display: flex;
+  align-items: center;
+  padding: var(--space-sm);
+  cursor: pointer;
+  gap: var(--space-sm);
+  border-bottom: 1px solid var(--border);
+  transition: background-color 0.2s ease;
+  user-select: none;
+}
+
+.mcp-server-option:last-child {
+  border-bottom: none;
+}
+
+.mcp-server-option:hover {
+  background: var(--surface-hover);
+}
+
+.mcp-server-option input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.mcp-server-name {
+  font-size: 12px;
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.mcp-server-type {
+  font-size: 11px;
+  color: var(--muted);
+  margin-left: auto;
+}
+
+.mcp-no-servers {
+  padding: var(--space-md);
+  text-align: center;
+}
+
+.mcp-configure-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  transition: color 0.2s ease;
+}
+
+.mcp-configure-button:hover {
+  color: var(--foreground);
+  background: var(--surface-hover);
+}
+
+.mcp-configure-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

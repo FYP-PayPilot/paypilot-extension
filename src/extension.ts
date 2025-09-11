@@ -939,88 +939,56 @@ export async function activate(context: vscode.ExtensionContext) {
 
             currentAbortController = null; // Clear the controller
 
-            // Apply code changes if we have an editor and code
-            if (editor) {
-              const codeBlockRegex = /```[a-zA-Z0-9_-]*\s*([\s\S]*?)```/;
-              const match = fullResponse.match(codeBlockRegex);
+            // Parse multiple file modifications from AI response
+            const fileModifications = parseMultipleFileModifications(fullResponse, msg.contextFiles);
+            
+            console.log(`[PayPilot] Found ${fileModifications.length} file modifications`);
 
-              if (match && match[1]) {
-                const newContent = match[1].trim();
-                const originalText = editor.document.getText(); // Get current content
-                const originalLines = originalText.split("\n");
-                const newLines = newContent.split("\n");
-
-                await applyChangesWithVSCodeDiff(newContent);
-
-                // Calculate proper diff stats using LCS-based approach
-                const diffStats = calculateDiffStats(
-                  originalLines,
-                  newLines
-                );
-
-                // Debug logging
-                console.log("[PayPilot Diff Debug]");
-                console.log("Original lines:", originalLines.length);
-                console.log("New lines:", newLines.length);
-                console.log("Calculated added:", diffStats.added);
-                console.log("Calculated deleted:", diffStats.deleted);
-
-                // Extract summary from AI response
-                let explanation = "";
-                const summaryMatch = fullResponse.match(
-                  /Summary:\s*(.+?)(?:\n|$)/i
-                );
-                if (summaryMatch && summaryMatch[1]) {
-                  explanation = summaryMatch[1].trim();
-                } else {
-                  // Fallback: extract text outside code blocks
-                  const aiExplanation = fullResponse
-                    .replace(/```[a-zA-Z0-9_-]*\s*[\s\S]*?```/g, "")
-                    .trim();
-                  explanation =
-                    aiExplanation.length > 20 ? aiExplanation : "";
-                }
-
-                // Generate a smart summary if no explanation
-                if (
-                  !explanation &&
-                  (diffStats.added > 0 || diffStats.deleted > 0)
-                ) {
-                  const changes = [];
-                  if (diffStats.added > 0) {
-                    changes.push(
-                      `${diffStats.added} line${
-                        diffStats.added > 1 ? "s" : ""
-                      } added`
-                    );
-                  }
-                  if (diffStats.deleted > 0) {
-                    changes.push(
-                      `${diffStats.deleted} line${
-                        diffStats.deleted > 1 ? "s" : ""
-                      } removed`
-                    );
-                  }
-                  explanation = `Updated code: ${changes.join(", ")}`;
-                }
-
-                // Send code applied message
-                panel.postMessage({
-                  type: "chat:code-applied",
-                  fileName:
-                    editor.document.fileName.split("/").pop() ||
-                    "Unknown file",
-                  filePath: editor.document.uri.fsPath,
-                  linesAdded: diffStats.added,
-                  linesDeleted: diffStats.deleted,
-                  explanation,
-                });
-              } else {
-                // No code found, send as regular done message
-                panel.postMessage({ type: "chat:done", text: fullResponse });
-              }
-            } else {
+            
+            if (fileModifications.length === 0) {
+              // No file modifications found, send as regular done message
               panel.postMessage({ type: "chat:done", text: fullResponse });
+            } else {
+              // Process each file modification
+              for (const modification of fileModifications) {
+                try {
+                  console.log(`[PayPilot] Processing file: ${modification.fileName}`);
+                  
+                  // Open the target file
+                  const uri = vscode.Uri.file(modification.filePath);
+                  await vscode.window.showTextDocument(uri, { preview: false });
+                  const currentEditor = vscode.window.activeTextEditor;
+                  
+                  if (currentEditor) {
+                    const originalText = currentEditor.document.getText();
+                    const originalLines = originalText.split("\n");
+                    const newLines = modification.content.split("\n");
+
+                    await applyChangesWithVSCodeDiff(modification.content);
+
+                    // Calculate proper diff stats using LCS-based approach
+                    const diffStats = calculateDiffStats(originalLines, newLines);
+
+                    // Send code applied message for this file
+                    panel.postMessage({
+                      type: "chat:code-applied",
+                      fileName: modification.fileName,
+                      filePath: modification.filePath,
+                      linesAdded: diffStats.added,
+                      linesDeleted: diffStats.deleted,
+                      explanation: modification.summary || `Updated ${modification.fileName}`,
+                    });
+                    
+                    console.log(`[PayPilot] Successfully processed ${modification.fileName}`);
+                  }
+                } catch (fileError) {
+                  console.error(`[PayPilot] Error processing file ${modification.fileName}:`, fileError);
+                  panel.postMessage({
+                    type: "chat:error", 
+                    error: `Failed to modify ${modification.fileName}: ${fileError}`
+                  });
+                }
+              }
             }
           } catch (agentError) {
             currentAbortController = null;

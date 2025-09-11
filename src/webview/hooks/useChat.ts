@@ -221,12 +221,13 @@ export const useChat = () => {
           break;
 
         case 'chat:code-applied':
-          // Replace working message with code applied card
+          // Handle code applied messages - create separate cards for each file
           setState(prev => {
             const messages = [...prev.messages];
             const lastMessage = messages[messages.length - 1];
             
             if (lastMessage && lastMessage.isWorking) {
+              // Replace working message with first code applied card
               messages[messages.length - 1] = {
                 ...lastMessage,
                 content: 'Code changes applied',
@@ -239,6 +240,22 @@ export const useChat = () => {
                   explanation: message.explanation
                 }
               };
+            } else {
+              // Add additional code applied cards for subsequent files
+              const newMessage: ChatMessage = {
+                id: generateMessageId(),
+                content: 'Code changes applied',
+                role: 'assistant',
+                timestamp: Date.now(),
+                codeApplied: {
+                  fileName: message.fileName,
+                  filePath: message.filePath,
+                  linesAdded: message.linesAdded,
+                  linesDeleted: message.linesDeleted,
+                  explanation: message.explanation
+                }
+              };
+              messages.push(newMessage);
             }
             
             return { ...prev, messages, isLoading: false };

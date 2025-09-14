@@ -24,6 +24,7 @@
             "problemMatcher": "$esbuild-watch",
             "isBackground": true,
             "label": "npm: watch:esbuild",
+
             "presentation": {
                 "group": "watch",
                 "reveal": "never"

@@ -1,71 +1,187 @@
-# paypilot-extension# paypilot README
+# PayPilot - VS Code AI Assistant Extension
 
-This is the README for your extension "paypilot". After writing up a brief description, we recommend including the following sections.
+An AI-powered coding assistant that integrates with VS Code's Language Model API to provide intelligent code suggestions through a chat interface with real-time streaming responses.
 
-## Features
+## 🏗️ Architecture Overview
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    VS Code Extension Host                   │ ← Node.js Environment
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────┐│
+│  │   extension.ts  │←→│ ChatViewProvider │←→│languageModel││
+│  │  (Entry Point)  │  │   (Bridge)       │  │ (VS Code API││
+│  │                 │  │                  │  │  Integration)││
+│  └─────────────────┘  └──────────────────┘  └─────────────┘│
+└─────────────────────────────────────────────────────────────┘
+                              ↕ postMessage API
+┌─────────────────────────────────────────────────────────────┐
+│                      Webview (Browser)                     │ ← React App
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────┐│
+│  │   React App     │←→│   VSCodeContext  │←→│ Chat UI     ││
+│  │  (UI Layer)     │  │  (Communication) │  │ (Streaming) ││
+│  └─────────────────┘  └──────────────────┘  └─────────────┘│
+└─────────────────────────────────────────────────────────────┘
+```
 
-For example if there is an image subfolder under your extension project workspace:
+## 📁 Project Structure & File Relationships
 
-\!\[feature X\]\(images/feature-x.png\)
+### **Extension Core (Node.js Environment)**
+- **[`src/extension.ts`](src/extension.ts)** - Main entry point, registers chat panel and commands
+  - Uses: `vscode.window.registerWebviewViewProvider()`, `vscode.commands.registerCommand()`
+  - Handles: AI requests, diff management, status bar buttons
+  - Connects to: [`ChatViewProvider`](src/panels/ChatViewProvider.ts), [`languageModel`](src/services/languageModel.ts)
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+- **[`src/panels/ChatViewProvider.ts`](src/panels/ChatViewProvider.ts)** - Webview container and message router
+  - Uses: `vscode.WebviewView`, `webview.asWebviewUri()`, `webview.postMessage()`
+  - Handles: HTML generation, React app loading, extension ↔ webview communication
+  - Connects to: [`html.ts`](src/services/html.ts), receives messages from React app
 
-## Requirements
+- **[`src/services/languageModel.ts`](src/services/languageModel.ts)** - VS Code Language Model API integration
+  - Uses: `vscode.lm.selectChatModels()`, `model.sendRequest()`, streaming via `response.text`
+  - Handles: Model discovery, AI requests with proper error handling
+  - Provides: Available models list, streaming responses to extension
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- **[`src/services/html.ts`](src/services/html.ts)** - Secure HTML document generator
+  - Uses: Content Security Policy, nonce-based script loading
+  - Handles: Webview HTML structure, CSS embedding, React mounting point
+  - Provides: Complete HTML document with `<div id="root">` for React
 
-## Extension Settings
+### **Webview App (Browser Environment)**
+- **[`src/webview/index.tsx`](src/webview/index.tsx)** - React entry point
+  - Uses: `ReactDOM.createRoot()`, finds `#root` element from HTML
+  - Handles: React app initialization and mounting
+  - Connects to: [`App.tsx`](src/webview/App.tsx)
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+- **[`src/webview/App.tsx`](src/webview/App.tsx)** - Root React component
+  - Provides: [`VSCodeProvider`](src/webview/context/VSCodeContext.tsx) context wrapper
+  - Renders: Main [`Chat`](src/webview/components/chat/Chat.tsx) interface
 
-For example:
+- **[`src/webview/context/VSCodeContext.tsx`](src/webview/context/VSCodeContext.tsx)** - Extension communication layer
+  - Uses: `window.acquireVsCodeApi()`, `vscode.postMessage()`, `window.addEventListener('message')`
+  - Handles: Bidirectional messaging between React and extension
+  - Provides: `postMessage()` and `onMessage()` to React components
 
-This extension contributes the following settings:
+- **[`src/webview/hooks/useChat.ts`](src/webview/hooks/useChat.ts)** - Chat state management
+  - Uses: VSCodeContext for messaging
+  - Handles: Message history, streaming responses, loading states
+  - Connects to: Chat components for UI updates
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+### **Build System**
+- **[`esbuild.js`](esbuild.js)** - Dual build configuration
+  - **Extension bundle**: `src/extension.ts` → `dist/extension.js` (Node.js/CommonJS)
+  - **Webview bundle**: `src/webview/index.tsx` → `dist/media/webview.js` (Browser/IIFE)
+  - **Features**: React JSX transform, file watching, media copying
 
-## Known Issues
+- **[`.vscode/tasks.json`](.vscode/tasks.json)** - Development workflow
+  - **`watch`**: Parallel TypeScript checking + esbuild bundling
+  - **Background tasks**: Continuous rebuilding on file changes
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+## 🔄 Message Flow Architecture
 
-## Release Notes
+### **Chat Request Flow**
+```
+User Input → ChatInput → useChat → VSCodeContext → ChatViewProvider 
+    ↓
+extension.ts → languageModel.ts → VS Code LM API → Streaming Response
+    ↓
+ChatViewProvider → VSCodeContext → useChat → Chat UI Update
+```
 
-Users appreciate release notes as you update your extension.
+### **Key Message Types** ([`src/types/chat.ts`](src/types/chat.ts))
+```typescript
+// Webview → Extension
+interface ChatAskMessage {
+  type: 'chat:ask';
+  prompt: string;
+  mode: 'agent' | 'ask';  // agent = code changes, ask = Q&A
+  model: string;
+}
 
-### 1.0.0
+// Extension → Webview  
+interface ChatStreamMessage {
+  type: 'chat:stream';
+  token: string;  // Real-time AI response tokens
+}
 
-Initial release of ...
+interface ChatCodeAppliedMessage {
+  type: 'chat:code-applied';  // After code is applied to file
+  fileName: string;
+  linesAdded: number;
+  linesDeleted: number;
+}
+```
 
-### 1.0.1
+## 🛠️ VS Code APIs Usage
 
-Fixed issue #.
+| API | Purpose | File |
+|-----|---------|------|
+| `vscode.window.registerWebviewViewProvider()` | Create sidebar panel | [`extension.ts`](src/extension.ts) |
+| `vscode.lm.selectChatModels()` | Discover available models | [`languageModel.ts`](src/services/languageModel.ts) |
+| `model.sendRequest()` | Send AI requests | [`languageModel.ts`](src/services/languageModel.ts) |
+| `vscode.TextEditor.edit()` | Apply code changes | [`extension.ts`](src/extension.ts) |
+| `vscode.commands.executeCommand('vscode.diff')` | Show diff view | [`extension.ts`](src/extension.ts) |
+| `vscode.scm.createSourceControl()` | Diff gutter indicators | [`extension.ts`](src/extension.ts) |
+| `vscode.window.createStatusBarItem()` | Diff action buttons | [`extension.ts`](src/extension.ts) |
+| `webview.asWebviewUri()` | Secure resource URIs | [`ChatViewProvider.ts`](src/panels/ChatViewProvider.ts) |
+| `window.acquireVsCodeApi()` | Webview communication | [`VSCodeContext.tsx`](src/webview/context/VSCodeContext.tsx) |
 
-### 1.1.0
+## 🎯 Core Features
 
-Added features X, Y, and Z.
+### **AI Integration**
+- **Model Support**: VS Code Language Models (GPT-4o, Claude, etc.)
+- **Streaming**: Real-time token-by-token responses
+- **Context**: Includes current file content in prompts
+- **Modes**: Agent (code changes) vs Ask (Q&A)
 
----
+### **Code Application & Diff**
+- **Auto-apply**: Extracts code from AI responses and applies to files
+- **Diff View**: Side-by-side comparison using VS Code's native diff editor
+- **Gutter Indicators**: Green/red line markers showing changes
+- **Actions**: Accept/Reject changes via status bar buttons
 
-## Following extension guidelines
+### **Security**
+- **Webview Sandbox**: CSP protection, nonce-based script loading
+- **No External APIs**: Uses only VS Code's built-in Language Model API
+- **Secure Storage**: API keys stored in VS Code's secret storage
 
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
+## 🚀 Development Setup
 
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
+```bash
+# Install dependencies
+npm install
 
-## Working with Markdown
+# Start development (runs both TypeScript compiler and bundler)
+npm run watch
 
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
+# Or run separately:
+npm run watch:tsc     # TypeScript type checking
+npm run watch:esbuild # JavaScript bundling
 
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
+# Launch Extension Development Host
+# Press F5 in VS Code
+```
 
-## For more information
+### **Development Workflow**
+1. **Save any file** → Triggers rebuild (< 100ms)
+2. **TypeScript errors** → Problems panel
+3. **Extension reload** → `Ctrl+R` in development host
+4. **Debug extension** → Set breakpoints in TypeScript files
+5. **Debug webview** → `Ctrl+Shift+I` in chat panel
 
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
+## 📦 Key Dependencies
 
-**Enjoy!**
+- **Runtime**: `react`, `react-dom`, `react-icons`
+- **Build**: `esbuild`, `typescript`, `eslint`
+- **VS Code**: `@types/vscode` (^1.88.0 for Language Model API)
+
+## 🔧 Extension Points
+
+### **Adding New Message Types**
+1. Define in [`types/chat.ts`](src/types/chat.ts)
+2. Handle in [`extension.ts`](src/extension.ts) message handler
+3. Send from React via [`useChat.ts`](src/webview/hooks/useChat.ts)
+
+### **Adding New Commands**
+1. Register in [`package.json`](package.json) `contributes.commands`
+2. Implement in [`extension.ts`](src/extension.ts) `activate()`
+3. Add to `context.subscriptions`

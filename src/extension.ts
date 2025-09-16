@@ -112,7 +112,7 @@ function parseMultipleFileModifications(response: string, contextFiles: any[]): 
  * Resolve file name to absolute path using context files
  */
 function resolveFilePath(fileName: string, contextFiles: any[]): string | null {
-  if (!Array.isArray(contextFiles)) return null;
+  if (!Array.isArray(contextFiles)) {return null;}
   
   // First try exact fileName match
   let matchedFile = contextFiles.find((f: any) => f.fileName === fileName);

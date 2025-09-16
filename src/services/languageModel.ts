@@ -1,17 +1,18 @@
-import * as vscode from 'vscode';
-import { ModelInfo } from '../types/chat';
-
 /**
  * Language Model Service - Direct VS Code Language Model API
  * 
  * This service uses the direct VS Code Language Model API:
  * - Uses vscode.lm.selectChatModels() to discover available models
  * - Direct sendRequest calls with proper error handling
- * - Native streaming through response.text AsyncIterable
+ * - Streaming through response.text AsyncIterable for real-time token handling
  */
+
+import * as vscode from 'vscode';
+import { ModelInfo } from '../types/chat';
 
 /**
  * Get all available VS Code language models
+ * @returns Promise<ModelInfo[]> Array of available models
  */
 export async function getAvailableModels(): Promise<ModelInfo[]> {
   try {
@@ -26,10 +27,7 @@ export async function getAvailableModels(): Promise<ModelInfo[]> {
       return [];
     }
 
-    // Convert VS Code model objects to ModelInfo format
-    // - React UI expects the ModelInfo interface structure
-    // - VS Code models have different property names/organization
-    // - For consistent model representation across the extension
+    // Convert VS Code model objects to ModelInfo format which the React UI expects
     const models: ModelInfo[] = vscodeModels.map(model => ({
       id: model.id,
       name: model.name || model.family || 'Unknown Model',
@@ -54,123 +52,90 @@ export async function getAvailableModels(): Promise<ModelInfo[]> {
 }
 
 /**
- * Stream chat response from language model - Agent Mode (no UI streaming)
- * Collects full response before processing
+ * Get a specific language model by ID
+ * @param modelId - The model ID or family to find
+ * @returns The VS Code language model object or null if not found
  */
-export async function streamChatAgent(
-  modelId: string,
-  prompt: string,
-  abortSignal?: AbortSignal
-): Promise<string> {
-  console.log(`[PayPilot] Using streamChatAgent with model: ${modelId}`);
+export async function getLanguageModel(modelId: string): Promise<vscode.LanguageModelChat | null> {
   try {
-    const models = await vscode.lm.selectChatModels(); // Get all available models
-    const selectedModel = models.find(m => m.family === modelId || m.id === modelId) || models[0]; 
-    
-    if (!selectedModel) {
-      throw new Error(`No language model found. Available: ${models.map(m => m.family).join(', ')}`);
-    }
-
-    console.log(`[PayPilot] Selected model for agent mode: ${selectedModel.family} (${selectedModel.name})`);
-
-    const cancellationTokenSource = new vscode.CancellationTokenSource();
-    
-    // Handle abort signal
-    if (abortSignal?.aborted) {
-      cancellationTokenSource.cancel();
-      throw new Error('Request was cancelled');
-    }
-    abortSignal?.addEventListener('abort', () => cancellationTokenSource.cancel());
-
-    const response = await selectedModel.sendRequest(
-      [vscode.LanguageModelChatMessage.User(prompt)],
-      { justification: 'PayPilot agent mode request' },
-      cancellationTokenSource.token
-    );
-    
-    console.log(`[PayPilot] ✅ Direct API call successful - collecting full response in agent mode`);
-    
-    let fullResponse = '';
-    for await (const chunk of response.text) {
-      if (cancellationTokenSource.token.isCancellationRequested) {
-        throw new Error('Request was cancelled');
-      }
-      fullResponse += chunk;
-    }
-
-    console.log(`[PayPilot] ✅ Agent mode complete - collected ${fullResponse.length} characters`);
-
-    cancellationTokenSource.dispose();
-    return fullResponse;
-    
+    const models = await vscode.lm.selectChatModels();
+    return models.find(m => m.family === modelId || m.id === modelId) || null;
   } catch (error) {
-    if (error instanceof vscode.LanguageModelError) {
-      throw new Error(`Language model error: ${error.message}`);
-    }
-    throw error;
+    console.warn('[PayPilot] Failed to get language model:', error);
+    return null;
   }
 }
 
 /**
- * Stream chat response from language model - Chat Mode (with UI streaming)
- * Streams tokens in real-time to the provided callback
+ * Stream response from language model with optional real-time callback
+ * @param model - The VS Code language model object to use
+ * @param prompt - User prompt to send
+ * @param onToken - Optional callback for each token received (for UI streaming)
+ * @param abortSignal - Optional AbortSignal to cancel the request
+ * @returns Promise<string> Complete response text
  */
-export async function streamChatUI(
-  modelId: string,
+export async function streamLanguageModel(
+  model: vscode.LanguageModelChat,
   prompt: string,
-  onToken: (token: string) => void,
-  onComplete: (fullText: string) => void,
+  onToken?: (token: string) => void,
   abortSignal?: AbortSignal
-): Promise<void> {
-  console.log(`[PayPilot] 🚀 Using NEW DIRECT API - streamChatUI with model: ${modelId}`);
+): Promise<string> {
+  console.log(`[PayPilot] Using streamLanguageModel with model: ${model.family} (${model.name})`);
   try {
-    const models = await vscode.lm.selectChatModels();
-    const selectedModel = models.find(m => m.family === modelId || m.id === modelId) || models[0];
-    
-    if (!selectedModel) {
-      throw new Error(`No language model found. Available: ${models.map(m => m.family).join(', ')}`);
-    }
-
-    console.log(`[PayPilot] Selected model for chat mode: ${selectedModel.family} (${selectedModel.name})`);
-
+    // Create VS Code cancellation token for clean request termination
     const cancellationTokenSource = new vscode.CancellationTokenSource();
     
-    // Handle abort signal
+    // Check if request was already cancelled before we start
     if (abortSignal?.aborted) {
       cancellationTokenSource.cancel();
-      return;
+      throw new Error('Request was cancelled');
     }
+    // Link external abort signal to VS Code cancellation token
     abortSignal?.addEventListener('abort', () => cancellationTokenSource.cancel());
 
-    const response = await selectedModel.sendRequest(
+    // Send prompt to language model and get streaming response
+    const response = await model.sendRequest(
       [vscode.LanguageModelChatMessage.User(prompt)],
-      { justification: 'PayPilot chat streaming request' },
+      { justification: 'PayPilot request' },
       cancellationTokenSource.token
     );
     
-    console.log(`[PayPilot] ✅ Direct API call successful - streaming tokens to UI in chat mode`);
+    console.log(`[PayPilot] API call successful - ${onToken ? 'streaming to UI' : 'collecting full response'}`);
     
+    // Accumulate response chunks and track progress
     let fullResponse = '';
     let tokenCount = 0;
+    
+    // Iterate through streaming response chunks (tokens/words)
     for await (const chunk of response.text) {
+      // Exit early if cancellation was requested
       if (cancellationTokenSource.token.isCancellationRequested) {
         break;
       }
+      
+      // Build complete response from individual chunks
       fullResponse += chunk;
       tokenCount++;
-      onToken(chunk);
+      
+      // Send chunk to UI immediately if streaming callback provided
+      onToken?.(chunk);
     }
 
+    // Log completion status based on whether request was cancelled
     if (!cancellationTokenSource.token.isCancellationRequested) {
-      console.log(`[PayPilot] ✅ Chat mode complete - streamed ${tokenCount} tokens, total ${fullResponse.length} characters`);
-      onComplete(fullResponse);
+      console.log(`[PayPilot] Complete - ${tokenCount} tokens, ${fullResponse.length} characters`);
     } else {
-      console.log(`[PayPilot] ⚠️ Chat mode cancelled - partial response with ${tokenCount} tokens`);
+      console.log(`[PayPilot] Cancelled - partial response with ${tokenCount} tokens`);
     }
 
+    // Clean up cancellation token resources
     cancellationTokenSource.dispose();
     
+    // Return complete response text (even if partially cancelled)
+    return fullResponse;
+    
   } catch (error) {
+    // Convert VS Code language model errors to standard Error objects
     if (error instanceof vscode.LanguageModelError) {
       throw new Error(`Language model error: ${error.message}`);
     }

@@ -2,8 +2,8 @@ import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import {
   getAvailableModels,
-  streamChatAgent,
-  streamChatUI,
+  getLanguageModel,
+  streamLanguageModel,
 } from "./services/languageModel";
 
 // Global state for VS Code native diff management
@@ -882,9 +882,13 @@ export async function activate(context: vscode.ExtensionContext) {
   chatProvider.onMessage(async (msg: any, panel: any) => {
     if (msg?.type === "chat:ask") {
       try {
-        // Use specified model or first available model
-        let modelId = msg.model;
-        if (!modelId) {
+        // Get the specific language model to use
+        let selectedModel: vscode.LanguageModelChat | null = null;
+        if (msg.model) {
+          selectedModel = await getLanguageModel(msg.model);
+        }
+        
+        if (!selectedModel) {
           const availableModels = await getAvailableModels();
           if (availableModels.length === 0) {
             panel.postMessage({
@@ -894,7 +898,22 @@ export async function activate(context: vscode.ExtensionContext) {
             });
             return;
           }
-          modelId = availableModels[0].id;
+          selectedModel = await getLanguageModel(availableModels[0].id);
+          if (!selectedModel) {
+            panel.postMessage({
+              type: "chat:error",
+              error: "Failed to load the fallback language model. Please check your model configuration or sign in to VS Code.",
+            });
+            return;
+          }
+        }
+
+        if (!selectedModel) {
+          panel.postMessage({
+            type: "chat:error", 
+            error: "Failed to load the selected language model.",
+          });
+          return;
         }
 
         const editor = vscode.window.activeTextEditor; // Get current active editor for context for llm
@@ -1032,9 +1051,10 @@ export async function activate(context: vscode.ExtensionContext) {
 
           try {
             // Make API call without streaming for agent mode
-            const fullResponse = await streamChatAgent(
-              modelId,
+            const fullResponse = await streamLanguageModel(
+              selectedModel,
               composed,
+              undefined, // No streaming callback for agent mode
               abortController.signal
             );
 
@@ -1103,19 +1123,19 @@ export async function activate(context: vscode.ExtensionContext) {
           // Ask mode: Continue with streaming
           console.log(`[PayPilot] Starting Ask Mode`);
           try {
-            await streamChatUI(
-              modelId,
+            const result = await streamLanguageModel(
+              selectedModel,
               composed,
               (token: string) => {
                 fullResponse += token;
                 panel.postMessage({ type: "chat:stream", token });
               },
-              (fullText: string) => {
-                currentAbortController = null;
-                panel.postMessage({ type: "chat:done", text: fullText });
-              },
               abortController.signal
             );
+            
+            // Handle completion
+            currentAbortController = null;
+            panel.postMessage({ type: "chat:done", text: result });
           } catch (chatError) {
             currentAbortController = null;
             console.error("Error in chat mode:", chatError);

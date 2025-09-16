@@ -1,14 +1,12 @@
 /** ChatViewProvider.ts (sourced from below link with modifications)
  * https://github.com/microsoft/vscode-extension-samples/blob/main/webview-view-sample/src/extension.ts
+  * Webview View for the PayPilot chat interface.
+ * Bridges VS Code extension APIs with React chat UI.
  */
 
 import * as vscode from 'vscode';
 import { getWebviewHtml } from '../services/html';
 
-/**
- * Webview View for the PayPilot chat interface.
- * Bridges VS Code extension APIs with React chat UI.
- */
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   
   private _view?: vscode.WebviewView;

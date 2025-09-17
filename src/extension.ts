@@ -101,6 +101,15 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand("paypilot.toggleCurrentDiff", async () => {
+      if (messageHandlerService) {
+        const diffService = messageHandlerService.getDiffService();
+        await diffService.toggleDiffForActiveFile();
+      }
+    })
+  );
+
   /**
    * MESSAGE HANDLING SYSTEM - Processes chat messages and AI requests
    */

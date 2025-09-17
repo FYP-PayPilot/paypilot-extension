@@ -260,7 +260,7 @@ export class MessageHandlerService {
     panel: any,
     abortController: AbortController
   ): Promise<void> {
-    console.log("[PayPilot] 🤖 Starting AGENT MODE");
+    console.log("[PayPilot] Starting Agent Mode");
     panel.postMessage({
       type: "chat:working",
       message: "Analyzing code and preparing changes...",

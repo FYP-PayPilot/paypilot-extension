@@ -553,7 +553,8 @@ export class MessageHandlerService {
       this.statusBarService.showEnhancedDiffButtons(
         true,
         this.diffService.activeFileHasChanges(),
-        totalFiles
+        totalFiles,
+        this.diffService.isActiveDiffOpen()
       );
     } else if (!visible) {
       this.statusBarService.cleanupStatusBarItems();

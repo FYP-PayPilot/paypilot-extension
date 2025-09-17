@@ -1,58 +1,37 @@
+
 import * as vscode from "vscode";
 
 /**
- * TextDocumentContentProvider implementation that stores PayPilot originals in memory.
+ * Lightweight content provider that feeds VS Code the original snapshot
+ * for any file PayPilot is tracking.
  */
 export class OriginalContentProvider implements vscode.TextDocumentContentProvider {
-  private readonly _onDidChange = new vscode.EventEmitter<vscode.Uri>();
-  readonly onDidChange = this._onDidChange.event;
-  private readonly originalContentByUri = new Map<string, string>();
+  private readonly onDidChangeEmitter = new vscode.EventEmitter<vscode.Uri>();
+  readonly onDidChange = this.onDidChangeEmitter.event;
+
+  private readonly contentByUri = new Map<string, string>();
 
   provideTextDocumentContent(uri: vscode.Uri): string {
-    const key = this.getKey(uri);
-    return this.originalContentByUri.get(key) ?? "";
+    return this.contentByUri.get(this.key(uri)) ?? "";
   }
 
   setOriginalContent(uri: vscode.Uri, content: string): void {
-    const key = this.getKey(uri);
-    this.originalContentByUri.set(key, content);
-    this._onDidChange.fire(uri);
-  }
-
-  getOriginalContent(uri: vscode.Uri): string | undefined {
-    return this.originalContentByUri.get(this.getKey(uri));
+    this.contentByUri.set(this.key(uri), content);
+    this.onDidChangeEmitter.fire(uri);
   }
 
   clearOriginalContent(uri: vscode.Uri): void {
-    const key = this.getKey(uri);
-    if (this.originalContentByUri.delete(key)) {
-      this._onDidChange.fire(uri);
+    if (this.contentByUri.delete(this.key(uri))) {
+      this.onDidChangeEmitter.fire(uri);
     }
-  }
-
-  hasOriginalContent(uri: vscode.Uri): boolean {
-    return this.originalContentByUri.has(this.getKey(uri));
-  }
-
-  update(uri: vscode.Uri): void {
-    if (this.hasOriginalContent(uri)) {
-      this._onDidChange.fire(uri);
-    }
-  }
-
-  clearAll(): void {
-    if (this.originalContentByUri.size === 0) {
-      return;
-    }
-    this.originalContentByUri.clear();
   }
 
   dispose(): void {
-    this.originalContentByUri.clear();
-    this._onDidChange.dispose();
+    this.contentByUri.clear();
+    this.onDidChangeEmitter.dispose();
   }
 
-  private getKey(uri: vscode.Uri): string {
+  private key(uri: vscode.Uri): string {
     return uri.with({ query: "", fragment: "" }).toString();
   }
 }

@@ -43,6 +43,10 @@
       {
         "command": "paypilot.rejectChanges",
         "title": "PayPilot: Reject Changes"
+      },
+      {
+        "command": "paypilot.cancelSequentialReview",
+        "title": "PayPilot: Cancel Sequential Review"
       }
     ],
     "configuration": {

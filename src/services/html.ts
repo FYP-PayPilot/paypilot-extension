@@ -38,11 +38,11 @@ export function getWebviewHtml(
 ) {
   const nonce = getNonce();
   
-  // Configure Content Security Policy for XSS prevention
+  // Configure Content Security Policy for XSS prevention using webview's CSP source
   const csp = [
     "default-src 'none'",
     "img-src 'self' data:",
-    "style-src 'unsafe-inline' 'self'",
+    `style-src ${webview.cspSource} 'unsafe-inline' 'self'`,
     `script-src 'nonce-${nonce}'`,
     "connect-src https: http:"
   ].join('; ');

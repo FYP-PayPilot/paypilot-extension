@@ -21,6 +21,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Set callback for when panel visibility changes
+   * @param callback function to call on visibility change
    */
   public onVisibilityChange(callback: (visible: boolean) => void) {
     this.visibilityChangeCallback = callback;
@@ -29,6 +30,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Configures webview with React app and sets up message routing.
    * Called by VS Code when the chat panel is opened.
+   * @param webviewView The webview view provided by VS Code
+   * @param _context Additional context (not used)
+   * @param _token Cancellation token (not used)
    */
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -81,6 +85,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Registers message listener for webview communication.
    * Used by extension.ts to handle chat requests and other UI events.
+   * @param listener Function to handle incoming messages
    */
   public onMessage(listener: (msg: any, panel: vscode.Webview) => void) {
     this.messageHandler = listener;
@@ -89,6 +94,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Sends messages from extension to React UI.
    * Safe to call even if webview is not initialized.
+   * @param message Message object to send to webview
    */
   public postMessage(message: any) {
     this._view?.webview.postMessage(message);

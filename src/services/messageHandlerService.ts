@@ -431,6 +431,30 @@ export class MessageHandlerService {
   }
 
   /**
+   * Handle chat:new message - placeholder for now
+   */
+  private async handleNewChat(panel: any): Promise<void> {
+    console.log("[PayPilot] New chat requested");
+    // TODO: Implement chat session management
+    panel.postMessage({
+      type: "chat:new-response",
+      success: true,
+    });
+  }
+
+  /**
+   * Handle chat:history message - placeholder for now
+   */
+  private async handleChatHistory(panel: any): Promise<void> {
+    console.log("[PayPilot] Chat history requested");
+    // TODO: Implement chat history retrieval
+    panel.postMessage({
+      type: "chat:history-response",
+      sessions: [], // Empty for now
+    });
+  }
+
+  /**
    * Handle model:list-request message
    */
   private async handleModelListRequest(panel: any): Promise<void> {

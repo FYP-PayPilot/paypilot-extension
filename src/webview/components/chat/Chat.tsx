@@ -3,6 +3,7 @@ import { useChat } from '../../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ContextList } from './ContextList';
+import { ChatControls } from './ChatControls';
 
 /**
  * Main chat component that orchestrates the entire chat interface
@@ -27,7 +28,9 @@ export const Chat: React.FC = () => {
     mcpServers,
     selectedServers,
     onServerSelection,
-    onMcpInfo
+    onMcpInfo,
+    handleNewChat,
+    handleChatHistory
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -41,6 +44,13 @@ export const Chat: React.FC = () => {
 
   return (
     <div className="chat-container">
+      {/* Chat Controls */}
+      <ChatControls 
+        onNewChat={handleNewChat}
+        onChatHistory={handleChatHistory}
+        disabled={isLoading}
+      />
+
       {/* Messages area */}
       <div className="messages-container">
         {messages.length === 0 ? (

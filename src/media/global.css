@@ -65,6 +65,53 @@ html, body, #root {
   background: var(--background);
 }
 
+/* Chat Controls */
+.chat-controls {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.new-chat-button,
+.chat-history-button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 12px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.new-chat-button:hover,
+.chat-history-button:hover {
+  background: var(--surface-hover);
+  transform: translateY(-1px);
+}
+
+.new-chat-button:active,
+.chat-history-button:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 350px) {
+  .chat-controls {
+    padding: var(--space-xs) var(--space-sm);
+    gap: var(--space-xs);
+  }
+  
+  .new-chat-button,
+  .chat-history-button {
+    font-size: 11px;
+    padding: 4px 6px;
+    gap: 4px;
+  }
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;

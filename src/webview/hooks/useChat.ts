@@ -185,15 +185,35 @@ export const useChat = () => {
     postMessage({ type: 'mcp:get' });
   }, [postMessage]);
 
-  const handleServerSelection = useCallback((servers: string[]) => {
-    setSelectedServers(servers);
-    // Automatically enable MCP when servers are selected, disable when none
-    const shouldEnable = servers.length > 0;
-    if (shouldEnable !== mcpEnabled) {
-      setMcpEnabled(shouldEnable);
-      postMessage({ type: 'mcp:toggle', enabled: shouldEnable });
-    }
-  }, [mcpEnabled, postMessage]);
+  const handleServerSelection = useCallback(
+    (servers: string[]) => {
+      setSelectedServers(servers);
+      // Automatically enable MCP when servers are selected, disable when none
+      const shouldEnable = servers.length > 0;
+      if (shouldEnable !== mcpEnabled) {
+        setMcpEnabled(shouldEnable);
+        postMessage({ type: 'mcp:toggle', enabled: shouldEnable });
+      }
+    },
+    [mcpEnabled, postMessage]
+  );
+
+  // Handle new chat
+  const handleNewChat = useCallback(() => {
+    // Clear current chat messages
+    setState((prev) => ({
+      ...prev,
+      messages: [],
+    }));
+
+    // Send message to extension
+    postMessage({ type: 'chat:new' });
+  }, [postMessage]);
+
+  // Handle chat history
+  const handleChatHistory = useCallback(() => {
+    postMessage({ type: 'chat:history' });
+  }, [postMessage]);
 
   // Load MCP servers on mount
   useEffect(() => {
@@ -429,5 +449,7 @@ export const useChat = () => {
     selectedServers,
     onServerSelection: handleServerSelection,
     onMcpInfo: handleMcpInfo,
+    handleNewChat,
+    handleChatHistory,
   };
 };

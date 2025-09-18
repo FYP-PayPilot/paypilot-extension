@@ -56,6 +56,12 @@ export class MessageHandlerService {
       case "chat:stop":
         await this.handleChatStop(panel);
         break;
+      case "chat:new":
+        await this.handleNewChat(panel);
+        break;
+      case "chat:history":
+        await this.handleChatHistory(panel);
+        break;
       case "model:list-request":
         await this.handleModelListRequest(panel);
         break;

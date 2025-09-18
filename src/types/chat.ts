@@ -64,7 +64,17 @@ export interface McpToggleMessage {
 
 /** Sent from ChatInput to request available MCP servers */
 export interface GetMcpServersMessage {
-  type: 'mcp:get';
+  type: "mcp:get";
+}
+
+/** Sent when user wants to start a new chat session */
+export interface NewChatMessage {
+  type: "chat:new";
+}
+
+/** Sent when user wants to view chat history */
+export interface ChatHistoryMessage {
+  type: "chat:history";
 }
 
 /** Union type used in VSCodeContext for type-safe message routing */
@@ -79,7 +89,9 @@ export type WebviewToExtensionMessage =
   | ContextRemoveMessage
   | ContextClearMessage
   | McpToggleMessage
-  | GetMcpServersMessage;
+  | GetMcpServersMessage
+  | NewChatMessage
+  | ChatHistoryMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {

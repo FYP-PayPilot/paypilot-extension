@@ -56,6 +56,12 @@ export class MessageHandlerService {
       case "chat:stop":
         await this.handleChatStop(panel);
         break;
+      case "chat:new":
+        await this.handleNewChat(panel);
+        break;
+      case "chat:history":
+        await this.handleChatHistory(panel);
+        break;
       case "model:list-request":
         await this.handleModelListRequest(panel);
         break;
@@ -422,6 +428,30 @@ export class MessageHandlerService {
       this.currentAbortController = null;
       panel.postMessage({ type: "chat:stopped" });
     }
+  }
+
+  /**
+   * Handle chat:new message - placeholder for now
+   */
+  private async handleNewChat(panel: any): Promise<void> {
+    console.log("[PayPilot] New chat requested");
+    // TODO: Implement chat session management
+    panel.postMessage({
+      type: "chat:new-response",
+      success: true,
+    });
+  }
+
+  /**
+   * Handle chat:history message - placeholder for now
+   */
+  private async handleChatHistory(panel: any): Promise<void> {
+    console.log("[PayPilot] Chat history requested");
+    // TODO: Implement chat history retrieval
+    panel.postMessage({
+      type: "chat:history-response",
+      sessions: [], // Empty for now
+    });
   }
 
   /**

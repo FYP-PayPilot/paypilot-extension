@@ -1,7 +1,5 @@
 /**
- * Language Model Service - Direct VS Code Language Model API
- * 
- * This service uses the direct VS Code Language Model API:
+ * Language Model Service - VS Code Language Model API
  * - Uses vscode.lm.selectChatModels() to discover available models
  * - Direct sendRequest calls with proper error handling
  * - Streaming through response.text AsyncIterable for real-time token handling

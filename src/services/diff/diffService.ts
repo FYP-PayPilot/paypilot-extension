@@ -1,32 +1,26 @@
+
+import * as path from "path";
 import * as vscode from "vscode";
 import { StatusBarService } from "../statusBarService";
 import { OriginalContentProvider } from "./originalContentProvider";
 import { PayPilotQuickDiffProvider } from "./paypilotQuickDiffProvider";
+import { TrackedFile } from "../../types/diff";
 
 /**
- * Snapshot of a file tracked for AI modifications.
- * `originalUri` points to the virtual document containing the preserved baseline.
+ * Orchestrates AI edit tracking using VS Code's Quick Diff infrastructure.
+ * Maintains per-file baselines, drives status-bar actions, and exposes
+ * helpers for toggling a full diff view on demand.
  */
-interface TrackedFile {
-  readonly originalUri: vscode.Uri;
-  readonly originalContent: string;
-}
-
-/**
- * Orchestrates AI diff tracking using VS Code's Quick Diff infrastructure.
- *
- * - Remembers the earliest baseline for each modified file.
- * - Exposes quick actions (keep/undo/accept-all/reject-all).
- * - Registers a QuickDiffProvider so gutter decorations always compare against the baseline.
- */
-
 export class DiffService {
   private readonly trackedFiles = new Map<string, TrackedFile>();
   private readonly originalContentProvider = new OriginalContentProvider();
   private readonly disposables: vscode.Disposable[] = [];
+  private readonly openDiffFiles = new Set<string>();
+  private readonly diffViewColumns = new Map<string, vscode.ViewColumn | undefined>();
   private sourceControl: vscode.SourceControl | undefined;
 
   constructor(private readonly statusBarService: StatusBarService) {
+    // Expose preserved baselines under a custom URI scheme so VS Code can load them.
     this.disposables.push(
       vscode.workspace.registerTextDocumentContentProvider(
         'paypilot-original',
@@ -34,8 +28,10 @@ export class DiffService {
       )
     );
 
+    // Register a QuickDiffProvider so gutter markers compare against our baselines.
     this.setupQuickDiffProvider();
 
+    // Refresh status-bar buttons whenever focus changes.
     this.disposables.push(
       vscode.window.onDidChangeActiveTextEditor(() => {
         this.updateStatusBarButtons();
@@ -55,11 +51,6 @@ export class DiffService {
     this.disposables.push({ dispose: () => this.sourceControl?.dispose() });
   }
 
-  /**
-   * Record the files touched by the latest AI response.
-   * When a file appears for the first time we snapshot its original contents;
-   * later iterations reuse that earliest baseline.
-   */
   async trackModifiedFiles(
     fileModifications: Array<{
       fileName: string;
@@ -81,7 +72,7 @@ export class DiffService {
           originalContent: mod.originalContent,
         });
       } else {
-        // Ensure the original content provider keeps serving the preserved snapshot.
+        // Ensure the content provider continues to serve the preserved snapshot.
         this.originalContentProvider.setOriginalContent(
           existing.originalUri,
           existing.originalContent
@@ -100,11 +91,12 @@ export class DiffService {
 
     const files = Array.from(this.trackedFiles.keys());
     for (const filePath of files) {
+      await this.closeDiffForFile(filePath);
       this.removeTrackedFile(filePath);
     }
 
     vscode.window.showInformationMessage(
-      `✅ Accepted changes for ${files.length} file${files.length === 1 ? "" : "s"}`
+      `Accepted changes for ${files.length} file${files.length === 1 ? "" : "s"}`
     );
     this.updateStatusBarButtons();
   }
@@ -117,11 +109,11 @@ export class DiffService {
 
     const files = Array.from(this.trackedFiles.keys());
     for (const filePath of files) {
-      await this.undoFile(filePath);
+      await this.undoFile(filePath, false);
     }
 
     vscode.window.showInformationMessage(
-      `❌ Rejected changes for ${files.length} file${files.length === 1 ? "" : "s"}`
+      `Rejected changes for ${files.length} file${files.length === 1 ? "" : "s"}`
     );
     this.updateStatusBarButtons();
   }
@@ -133,8 +125,9 @@ export class DiffService {
       return;
     }
 
+    await this.closeDiffForFile(filePath);
     this.removeTrackedFile(filePath);
-    vscode.window.showInformationMessage(`✅ Kept changes for ${this.getFileName(filePath)}`);
+    vscode.window.showInformationMessage(`Kept changes for ${this.getFileName(filePath)}`);
     this.updateStatusBarButtons();
   }
 
@@ -146,7 +139,23 @@ export class DiffService {
     }
 
     await this.undoFile(filePath);
-    vscode.window.showInformationMessage(`❌ Undid changes for ${this.getFileName(filePath)}`);
+    vscode.window.showInformationMessage(`Undid changes for ${this.getFileName(filePath)}`);
+    this.updateStatusBarButtons();
+  }
+
+  async toggleDiffForActiveFile(): Promise<void> {
+    const filePath = this.getActiveTrackedFilePath();
+    if (!filePath) {
+      vscode.window.showWarningMessage("No PayPilot changes to diff in the active file");
+      return;
+    }
+
+    if (this.openDiffFiles.has(filePath)) {
+      await this.closeDiffForFile(filePath);
+    } else {
+      await this.openDiffForFile(filePath);
+    }
+
     this.updateStatusBarButtons();
   }
 
@@ -159,11 +168,12 @@ export class DiffService {
   }
 
   activeFileHasChanges(): boolean {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      return false;
-    }
-    return this.trackedFiles.has(editor.document.uri.fsPath);
+    return this.getActiveTrackedFilePath() !== undefined;
+  }
+
+  isActiveDiffOpen(): boolean {
+    const filePath = this.getActiveTrackedFilePath();
+    return filePath ? this.openDiffFiles.has(filePath) : false;
   }
 
   calculateDiffStats(
@@ -205,11 +215,101 @@ export class DiffService {
     this.originalContentProvider.dispose();
   }
 
-  private async undoFile(filePath: string): Promise<void> {
+  private async openDiffForFile(filePath: string): Promise<void> {
+    if (this.openDiffFiles.has(filePath)) {
+      return;
+    }
+
     const entry = this.trackedFiles.get(filePath);
     if (!entry) {
       return;
     }
+
+    this.diffViewColumns.set(filePath, vscode.window.activeTextEditor?.viewColumn);
+
+    await this.closePlainEditorForFile(filePath);
+
+    const label = `${this.getFileName(filePath)} • PayPilot Diff`;
+    await vscode.commands.executeCommand(
+      'vscode.diff',
+      entry.originalUri,
+      vscode.Uri.file(filePath),
+      label,
+      { preview: false }
+    );
+
+    this.openDiffFiles.add(filePath);
+  }
+
+  private async closeDiffForFile(filePath: string, reopenEditor: boolean = true): Promise<void> {
+    const diffTabs: vscode.Tab[] = [];
+
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputTextDiff) {
+          const modified = tab.input.modified;
+          if (modified.scheme === 'file' && modified.fsPath === filePath) {
+            diffTabs.push(tab);
+          }
+        }
+      }
+    }
+
+    if (diffTabs.length > 0) {
+      try {
+        await vscode.window.tabGroups.close(diffTabs, true);
+      } catch (error) {
+        console.warn(`[PayPilot] Failed to close diff tab for ${filePath}:`, error);
+      }
+    }
+
+    this.openDiffFiles.delete(filePath);
+
+    const viewColumn = this.diffViewColumns.get(filePath);
+    this.diffViewColumns.delete(filePath);
+
+    if (reopenEditor) {
+      try {
+        await vscode.window.showTextDocument(vscode.Uri.file(filePath), {
+          preview: false,
+          viewColumn,
+        });
+      } catch (error) {
+        console.warn(`[PayPilot] Unable to reopen editor for ${filePath}:`, error);
+      }
+    }
+  }
+
+  private async closePlainEditorForFile(filePath: string): Promise<void> {
+    const plainTabs: vscode.Tab[] = [];
+
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        if (tab.input instanceof vscode.TabInputText) {
+          const uri = tab.input.uri;
+          if (uri.scheme === 'file' && uri.fsPath === filePath) {
+            plainTabs.push(tab);
+          }
+        }
+      }
+    }
+
+    if (plainTabs.length > 0) {
+      try {
+        await vscode.window.tabGroups.close(plainTabs, true);
+      } catch (error) {
+        console.warn(`[PayPilot] Failed to close editor tab for ${filePath}:`, error);
+      }
+    }
+  }
+
+  private async undoFile(filePath: string, reopenEditor: boolean = true): Promise<void> {
+    const entry = this.trackedFiles.get(filePath);
+    if (!entry) {
+      return;
+    }
+
+    await this.closeDiffForFile(filePath, false);
 
     const uri = vscode.Uri.file(filePath);
     const document = await vscode.workspace.openTextDocument(uri);
@@ -228,6 +328,11 @@ export class DiffService {
     }
 
     await document.save();
+
+    if (reopenEditor) {
+      await vscode.window.showTextDocument(document, { preview: false });
+    }
+
     this.removeTrackedFile(filePath);
   }
 
@@ -238,14 +343,21 @@ export class DiffService {
     }
 
     this.trackedFiles.delete(filePath);
+    this.openDiffFiles.delete(filePath);
+    this.diffViewColumns.delete(filePath);
     this.originalContentProvider.clearOriginalContent(entry.originalUri);
   }
 
   private updateStatusBarButtons(): void {
+    const activeFilePath = this.getActiveTrackedFilePath();
+    const currentFileHasChanges = !!activeFilePath;
+    const currentFileDiffOpen = activeFilePath ? this.openDiffFiles.has(activeFilePath) : false;
+
     this.statusBarService.showEnhancedDiffButtons(
       this.hasChanges(),
-      this.activeFileHasChanges(),
-      this.trackedFiles.size
+      currentFileHasChanges,
+      this.trackedFiles.size,
+      currentFileDiffOpen
     );
   }
 
@@ -254,15 +366,16 @@ export class DiffService {
     if (!editor) {
       return undefined;
     }
+
     const filePath = editor.document.uri.fsPath;
     return this.trackedFiles.has(filePath) ? filePath : undefined;
   }
 
   private toOriginalUri(filePath: string): vscode.Uri {
-    return vscode.Uri.file(filePath).with({ scheme: "paypilot-original", query: "", fragment: "" });
+    return vscode.Uri.file(filePath).with({ scheme: 'paypilot-original', query: '', fragment: '' });
   }
 
   private getFileName(filePath: string): string {
-    return filePath.split(/[\/]/).pop() || filePath;
+    return path.basename(filePath);
   }
 }

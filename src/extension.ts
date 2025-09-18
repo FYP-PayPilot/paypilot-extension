@@ -2,17 +2,15 @@ import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./services/messageHandlerService";
 
-// Global services
-let messageHandlerService: MessageHandlerService | undefined;
+let messageHandlerService: MessageHandlerService | undefined; // global message handler service
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log("PayPilot extension is active (VS Code Language Model API)");
+  
+  console.log("PayPilot extension is active");
 
-  // Initialize services
-  messageHandlerService = new MessageHandlerService();
+  messageHandlerService = new MessageHandlerService(); // initialise message handler service
 
-  // Initialize chat view provider
-  const chatProvider = new ChatViewProvider(context);
+  const chatProvider = new ChatViewProvider(context); // initialize chat view provider
 
   // Auto-inject context7 MCP server if not already present
   await messageHandlerService.getMcpService().ensureContext7McpServer();
@@ -99,6 +97,15 @@ export async function activate(context: vscode.ExtensionContext) {
       if (messageHandlerService) {
         const diffService = messageHandlerService.getDiffService();
         await diffService.undoCurrentFileChanges();
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("paypilot.toggleCurrentDiff", async () => {
+      if (messageHandlerService) {
+        const diffService = messageHandlerService.getDiffService();
+        await diffService.toggleDiffForActiveFile();
       }
     })
   );

@@ -26,9 +26,6 @@ export class MessageHandlerService {
   }
 
   /**
-   * Handle chat message processing
-   */
-  /**
    * Handle opening diff view for modified files.
    * With quick diff, we just ensure the document is visible so gutter markers show.
    */
@@ -43,6 +40,12 @@ export class MessageHandlerService {
     await vscode.window.showTextDocument(uri, { preview: false });
   }
 
+  /**
+   * Handle incoming messages from the chat panel
+   * @param msg The incoming message object
+   * @param panel The webview panel to communicate back to
+   * @returns void
+   */
   async handleMessage(msg: any, panel: any): Promise<void> {
     const messageType = msg?.type;
 
@@ -257,7 +260,7 @@ export class MessageHandlerService {
     panel: any,
     abortController: AbortController
   ): Promise<void> {
-    console.log("[PayPilot] 🤖 Starting AGENT MODE");
+    console.log("[PayPilot] Starting Agent Mode");
     panel.postMessage({
       type: "chat:working",
       message: "Analyzing code and preparing changes...",
@@ -405,8 +408,8 @@ export class MessageHandlerService {
     if (modificationsForDiff.length > 0) {
       await this.diffService.trackModifiedFiles(modificationsForDiff);
       const message = modificationsForDiff.length === 1
-        ? `✅ Review started for ${modificationsForDiff[0].fileName}`
-        : `✅ Review started for ${modificationsForDiff.length} files`;
+        ? `Review started for ${modificationsForDiff[0].fileName}`
+        : `Review started for ${modificationsForDiff.length} files`;
       this.statusBarService.showTemporaryMessage(message, 3000);
     }
   }
@@ -550,7 +553,8 @@ export class MessageHandlerService {
       this.statusBarService.showEnhancedDiffButtons(
         true,
         this.diffService.activeFileHasChanges(),
-        totalFiles
+        totalFiles,
+        this.diffService.isActiveDiffOpen()
       );
     } else if (!visible) {
       this.statusBarService.cleanupStatusBarItems();

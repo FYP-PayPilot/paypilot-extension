@@ -1,12 +1,15 @@
 /** ChatViewProvider.ts (sourced from below link with modifications)
  * https://github.com/microsoft/vscode-extension-samples/blob/main/webview-view-sample/src/extension.ts
-  * Webview View for the PayPilot chat interface.
- * Bridges VS Code extension APIs with React chat UI.
  */
 
 import * as vscode from 'vscode';
 import { getWebviewHtml } from '../services/html';
 
+/*
+* ChatViewProvider implements a VS Code WebviewViewProvider to host the React chat panel.
+* It sets up the webview, handles message routing between the extension and React app,
+* and manages visibility state changes.
+*/
 export class ChatViewProvider implements vscode.WebviewViewProvider {
   
   private _view?: vscode.WebviewView;
@@ -21,6 +24,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
 
   /**
    * Set callback for when panel visibility changes
+   * @param callback function to call on visibility change
+   * @returns void
    */
   public onVisibilityChange(callback: (visible: boolean) => void) {
     this.visibilityChangeCallback = callback;
@@ -29,6 +34,9 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Configures webview with React app and sets up message routing.
    * Called by VS Code when the chat panel is opened.
+   * @param webviewView The webview view provided by VS Code
+   * @param _context Additional context (not used)
+   * @param _token Cancellation token (not used)
    */
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
@@ -81,6 +89,8 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Registers message listener for webview communication.
    * Used by extension.ts to handle chat requests and other UI events.
+   * @param listener Function to handle incoming messages
+   * @returns void
    */
   public onMessage(listener: (msg: any, panel: vscode.Webview) => void) {
     this.messageHandler = listener;
@@ -89,6 +99,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
   /**
    * Sends messages from extension to React UI.
    * Safe to call even if webview is not initialized.
+   * @param message Message object to send to webview
    */
   public postMessage(message: any) {
     this._view?.webview.postMessage(message);

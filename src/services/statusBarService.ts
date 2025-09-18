@@ -17,6 +17,7 @@ export interface StatusBarButtonConfig {
 export class StatusBarService {
   private acceptAllButton: vscode.StatusBarItem | undefined;
   private rejectAllButton: vscode.StatusBarItem | undefined;
+  private viewDiffButton: vscode.StatusBarItem | undefined;
   private keepButton: vscode.StatusBarItem | undefined;
   private undoButton: vscode.StatusBarItem | undefined;
   private sequentialProgressItem: vscode.StatusBarItem | undefined;
@@ -32,7 +33,8 @@ export class StatusBarService {
   showEnhancedDiffButtons(
     hasAnyChanges: boolean,
     currentFileHasChanges: boolean,
-    totalFileCount: number
+    totalFileCount: number,
+    currentFileDiffOpen: boolean
   ): void {
     if (!this.chatPanelVisible || !hasAnyChanges) {
       this.cleanupStatusBarItems();
@@ -62,11 +64,18 @@ export class StatusBarService {
     });
 
     if (currentFileHasChanges) {
+      this.viewDiffButton = this.createStatusBarButton({
+        text: currentFileDiffOpen ? "$(x) Close Diff" : "$(diff) View Diff",
+        command: "paypilot.toggleCurrentDiff",
+        tooltip: currentFileDiffOpen ? "Close PayPilot diff view" : "Open PayPilot diff view",
+        priority: 2001,
+      });
+
       this.keepButton = this.createStatusBarButton({
         text: "$(check) Keep",
         command: "paypilot.keepCurrentFile",
         tooltip: "Keep PayPilot changes in the active file",
-        priority: 2001,
+        priority: 2000,
         backgroundColor: new vscode.ThemeColor("statusBarItem.prominentBackground"),
       });
 
@@ -74,10 +83,14 @@ export class StatusBarService {
         text: "$(discard) Undo",
         command: "paypilot.undoCurrentFile",
         tooltip: "Undo PayPilot changes in the active file",
-        priority: 2000,
+        priority: 1999,
         backgroundColor: new vscode.ThemeColor("statusBarItem.errorBackground"),
       });
     } else {
+      if (this.viewDiffButton) {
+        this.viewDiffButton.dispose();
+        this.viewDiffButton = undefined;
+      }
       if (this.keepButton) {
         this.keepButton.dispose();
         this.keepButton = undefined;
@@ -166,6 +179,10 @@ export class StatusBarService {
     if (this.rejectAllButton) {
       this.rejectAllButton.dispose();
       this.rejectAllButton = undefined;
+    }
+    if (this.viewDiffButton) {
+      this.viewDiffButton.dispose();
+      this.viewDiffButton = undefined;
     }
     if (this.keepButton) {
       this.keepButton.dispose();

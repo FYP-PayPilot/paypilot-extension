@@ -17,17 +17,16 @@ export class MessageHandlerService {
   private mcpService: McpService;
   private contextService: ContextService;
 
-  constructor() {
+  constructor(workspaceState: vscode.Memento) {
     this.statusBarService = new StatusBarService();
-    this.diffService = new DiffService(this.statusBarService);
+    this.diffService = new DiffService(this.statusBarService, workspaceState);
     this.fileModService = new FileModificationService();
     this.mcpService = new McpService();
     this.contextService = new ContextService();
   }
 
   /**
-   * Handle opening diff view for modified files.
-   * With quick diff, we just ensure the document is visible so gutter markers show.
+   * Handle opening diff view for modified files using the dedicated diff tabs.
    */
   async openDiffView(): Promise<void> {
     const tracked = this.diffService.getActiveDiffFiles();
@@ -36,8 +35,8 @@ export class MessageHandlerService {
       return;
     }
 
-    const uri = vscode.Uri.file(tracked[0]);
-    await vscode.window.showTextDocument(uri, { preview: false });
+    await this.diffService.openDiffForFile(tracked[0]);
+    this.diffService.refreshStatusBarButtons();
   }
 
   /**

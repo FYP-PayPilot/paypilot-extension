@@ -3,23 +3,28 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { StatusBarService } from "../statusBarService";
 import { OriginalContentProvider } from "./originalContentProvider";
-import { PayPilotQuickDiffProvider } from "./paypilotQuickDiffProvider";
-import { TrackedFile } from "../../types/diff";
+import { PersistedTrackedFile, TrackedFile } from "../../types/diff";
+
+const TRACKED_FILES_STATE_KEY = "paypilot.trackedDiffFiles"; // key for storing tracked files in workspaceState
 
 /**
- * Orchestrates AI edit tracking using VS Code's Quick Diff infrastructure.
- * Maintains per-file baselines, drives status-bar actions, and exposes
- * helpers for toggling a full diff view on demand.
+ * Orchestrates AI edit tracking by preserving per-file baselines, driving
+ * status-bar actions, and exposing helpers for toggling a full diff view on demand.
+ * It also persists unresolved edits in workspaceState so reviews survive reloads.
  */
 export class DiffService {
-  private readonly trackedFiles = new Map<string, TrackedFile>();
-  private readonly originalContentProvider = new OriginalContentProvider();
-  private readonly disposables: vscode.Disposable[] = [];
-  private readonly openDiffFiles = new Set<string>();
-  private readonly diffViewColumns = new Map<string, vscode.ViewColumn | undefined>();
-  private sourceControl: vscode.SourceControl | undefined;
+  
+  private readonly trackedFiles = new Map<string, TrackedFile>(); // tracks every file PayPilot has touched, mapped to its preserved baseline snapshot.
+  private readonly originalContentProvider = new OriginalContentProvider(); // serves baseline documents for diff views to VS Code
+  private readonly disposables: vscode.Disposable[] = []; // resources to clean up on dispose
+  private readonly openDiffFiles = new Set<string>(); // records which tracked files currently have an explicit diff tab open so toggles behave predictably.
+  private readonly diffViewColumns = new Map<string, vscode.ViewColumn | undefined>(); // remembers the editor column we stole when opening a diff so we can restore the view on close.
 
-  constructor(private readonly statusBarService: StatusBarService) {
+  constructor(
+    private readonly statusBarService: StatusBarService, // for updating diff-related buttons in the status bar
+    private readonly workspaceState: vscode.Memento // for persisting tracked files across sessions
+  ) {
+    
     // Expose preserved baselines under a custom URI scheme so VS Code can load them.
     this.disposables.push(
       vscode.workspace.registerTextDocumentContentProvider(
@@ -28,8 +33,8 @@ export class DiffService {
       )
     );
 
-    // Register a QuickDiffProvider so gutter markers compare against our baselines.
-    this.setupQuickDiffProvider();
+    // Rehydrate any tracked files from the previous session.
+    this.restoreTrackedFiles();
 
     // Refresh status-bar buttons whenever focus changes.
     this.disposables.push(
@@ -39,18 +44,65 @@ export class DiffService {
     );
   }
 
-  private setupQuickDiffProvider(): void {
-    const quickDiffProvider = new PayPilotQuickDiffProvider((uri) => {
-      const entry = this.trackedFiles.get(uri.fsPath);
-      return entry?.originalUri;
-    });
+  /**
+   * Rehydrate tracked files from workspaceState on startup so unresolved edits persist across sessions.
+   * Gets the array of persisted records, which are the file path of the modified file and its original content.
+   * @returns void
+   */
+  private restoreTrackedFiles(): void {
 
-    const root = vscode.workspace.workspaceFolders?.[0]?.uri;
-    this.sourceControl = vscode.scm.createSourceControl('paypilot', 'PayPilot', root);
-    this.sourceControl.quickDiffProvider = quickDiffProvider;
-    this.disposables.push({ dispose: () => this.sourceControl?.dispose() });
+    // get the persisted tracked files from workspaceState
+    const persisted = this.workspaceState.get<PersistedTrackedFile[]>(TRACKED_FILES_STATE_KEY, []);
+    if (!Array.isArray(persisted) || persisted.length === 0) {
+      return;
+    }
+
+    // iterate over each persisted record
+    for (const record of persisted) {
+      
+      // if the record is invalid (does not have a filePath), skip it
+      if (!record?.filePath) {
+        continue;
+      }
+
+      const originalUri = this.toOriginalUri(record.filePath); // create a URI for the original content
+      const originalContent = record.originalContent ?? ""; // get the original content, defaulting to an empty string if undefined
+      this.originalContentProvider.setOriginalContent(originalUri, originalContent); // set the original uri and content for each tracked file in the contentByUri map
+      this.trackedFiles.set(record.filePath, { // set the original uri and content for each tracked file in the trackedFiles map
+        originalUri,
+        originalContent,
+      });
+    }
+
+    // update the status bar buttons if there are any tracked files
+    if (this.trackedFiles.size > 0) {
+      this.updateStatusBarButtons();
+    }
   }
 
+  /**
+   * Snapshot the current tracked files into workspaceState
+   * The write is awaited where the user would expect durability (e.g. after AI edits)
+   * @returns Promise<void>
+   */
+  private async persistTrackedFiles(): Promise<void> {
+    const entries: PersistedTrackedFile[] = Array.from(this.trackedFiles.entries()).map(
+      ([filePath, entry]) => ({
+        filePath,
+        originalContent: entry.originalContent,
+      })
+    );
+
+    try {
+      await this.workspaceState.update(TRACKED_FILES_STATE_KEY, entries);
+    } catch (error) {
+      console.warn("[PayPilot] Failed to persist tracked diff files", error);
+    }
+  }
+
+  /**
+   * Register newly modified files coming back from the AI so we can show diffs/undo buttons.
+   */
   async trackModifiedFiles(
     fileModifications: Array<{
       fileName: string;
@@ -81,8 +133,12 @@ export class DiffService {
     }
 
     this.updateStatusBarButtons();
+    await this.persistTrackedFiles();
   }
 
+  /**
+   * Treat every tracked file as resolved by keeping the workspace edits.
+   */
   async acceptAllChanges(): Promise<void> {
     if (this.trackedFiles.size === 0) {
       vscode.window.showInformationMessage("No changes to accept");
@@ -101,6 +157,9 @@ export class DiffService {
     this.updateStatusBarButtons();
   }
 
+  /**
+   * Revert every tracked file back to its captured baseline.
+   */
   async rejectAllChanges(): Promise<void> {
     if (this.trackedFiles.size === 0) {
       vscode.window.showInformationMessage("No changes to reject");
@@ -118,6 +177,9 @@ export class DiffService {
     this.updateStatusBarButtons();
   }
 
+  /**
+   * Mark the active file as resolved without altering its current contents.
+   */
   async keepCurrentFileChanges(): Promise<void> {
     const filePath = this.getActiveTrackedFilePath();
     if (!filePath) {
@@ -131,6 +193,9 @@ export class DiffService {
     this.updateStatusBarButtons();
   }
 
+  /**
+   * Restore the active file to the captured baseline and keep the diff list tidy.
+   */
   async undoCurrentFileChanges(): Promise<void> {
     const filePath = this.getActiveTrackedFilePath();
     if (!filePath) {
@@ -176,6 +241,9 @@ export class DiffService {
     return filePath ? this.openDiffFiles.has(filePath) : false;
   }
 
+  /**
+   * Lightweight diff stats for progress UI. Avoids pulling in heavier dependencies.
+   */
   calculateDiffStats(
     oldLines: string[],
     newLines: string[]
@@ -211,11 +279,15 @@ export class DiffService {
       }
     }
 
+    void this.persistTrackedFiles();
     this.trackedFiles.clear();
     this.originalContentProvider.dispose();
   }
 
-  private async openDiffForFile(filePath: string): Promise<void> {
+  /**
+   * Open a dedicated diff tab comparing the saved baseline with the live workspace file.
+   */
+  public async openDiffForFile(filePath: string): Promise<void> {
     if (this.openDiffFiles.has(filePath)) {
       return;
     }
@@ -280,6 +352,9 @@ export class DiffService {
     }
   }
 
+  /**
+   * Ensure we do not show both the plain editor and the diff for the same file simultaneously.
+   */
   private async closePlainEditorForFile(filePath: string): Promise<void> {
     const plainTabs: vscode.Tab[] = [];
 
@@ -303,6 +378,9 @@ export class DiffService {
     }
   }
 
+  /**
+   * Single-file undo that replays the captured baseline and optionally reopens the editor.
+   */
   private async undoFile(filePath: string, reopenEditor: boolean = true): Promise<void> {
     const entry = this.trackedFiles.get(filePath);
     if (!entry) {
@@ -336,6 +414,9 @@ export class DiffService {
     this.removeTrackedFile(filePath);
   }
 
+  /**
+   * House-keeping when a file leaves the diff queue: forget it locally and persist the new state.
+   */
   private removeTrackedFile(filePath: string): void {
     const entry = this.trackedFiles.get(filePath);
     if (!entry) {
@@ -346,8 +427,19 @@ export class DiffService {
     this.openDiffFiles.delete(filePath);
     this.diffViewColumns.delete(filePath);
     this.originalContentProvider.clearOriginalContent(entry.originalUri);
+    void this.persistTrackedFiles();
   }
 
+  /**
+   * Helper so other services can refresh the CTA state without poking private methods.
+   */
+  refreshStatusBarButtons(): void {
+    this.updateStatusBarButtons();
+  }
+
+  /**
+   * Reflect the latest diff state in the status bar buttons.
+   */
   private updateStatusBarButtons(): void {
     const activeFilePath = this.getActiveTrackedFilePath();
     const currentFileHasChanges = !!activeFilePath;
@@ -361,6 +453,9 @@ export class DiffService {
     );
   }
 
+  /**
+   * Resolve the active editor to a tracked file path if it is under PayPilot control.
+   */
   private getActiveTrackedFilePath(): string | undefined {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
@@ -371,10 +466,16 @@ export class DiffService {
     return this.trackedFiles.has(filePath) ? filePath : undefined;
   }
 
+  /**
+   * Normalise the synthetic URI we use for baseline documents.
+   */
   private toOriginalUri(filePath: string): vscode.Uri {
     return vscode.Uri.file(filePath).with({ scheme: 'paypilot-original', query: '', fragment: '' });
   }
 
+  /**
+   * Convenience for user-facing messages where a bare filename reads better.
+   */
   private getFileName(filePath: string): string {
     return path.basename(filePath);
   }

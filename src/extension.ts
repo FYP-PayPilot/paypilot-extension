@@ -8,7 +8,8 @@ export async function activate(context: vscode.ExtensionContext) {
   
   console.log("PayPilot extension is active");
 
-  messageHandlerService = new MessageHandlerService(); // initialise message handler service
+  // Spin up the core coordinator with workspaceState so diff snapshots survive reloads.
+  messageHandlerService = new MessageHandlerService(context.workspaceState); // initialise message handler service
 
   const chatProvider = new ChatViewProvider(context); // initialize chat view provider
 
@@ -53,6 +54,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Register diff-related commands
   context.subscriptions.push(
+    // Diff commands always go through the service so status buttons stay in sync.
     vscode.commands.registerCommand("paypilot.openDiff", async () => {
       if (messageHandlerService) {
         // Simple diff flow - always open diff view

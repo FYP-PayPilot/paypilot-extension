@@ -252,10 +252,51 @@ export class ContextService {
   }
 
   /**
+   * Expose the current context files to callers that need richer metadata.
+   */
+  getContextFiles(): ContextFile[] {
+    return Array.from(this.contextFiles.values());
+  }
+
+  /**
    * Compose the currently tracked context files into a prompt-friendly string.
    * Called from MessageHandlerService.handleChatAsk right before invoking the language model.
    * @returns String containing annotated file sections, or an empty string when no context exists.
    */
+
+  /**
+   * Capture the active editor content or focused selection to feed into chat prompts.
+   * Applies the same trimming logic that MessageHandlerService previously embedded.
+   */
+  getActiveEditorContext(maxContextChars: number): string {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || maxContextChars <= 0) {
+      return '';
+    }
+
+    const documentText = editor.document.getText();
+    if (documentText.length <= maxContextChars) {
+      return documentText;
+    }
+
+    const selection = editor.selection;
+    if (!selection.isEmpty) {
+      return editor.document.getText(selection);
+    }
+
+    const cursorPosition = selection.active;
+    const lineNumber = cursorPosition.line;
+    const totalLines = editor.document.lineCount;
+
+    const contextRadius = Math.floor(maxContextChars / 80);
+    const startLine = Math.max(0, lineNumber - contextRadius);
+    const endLine = Math.min(totalLines - 1, lineNumber + contextRadius);
+
+    const contextRange = new vscode.Range(
+      startLine, 0, endLine, editor.document.lineAt(endLine).text.length
+    );
+    return editor.document.getText(contextRange);
+  }
   buildContextContent(): string {
     const files = Array.from(this.contextFiles.values());
 

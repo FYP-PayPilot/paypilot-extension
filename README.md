@@ -2,7 +2,7 @@
 
 PayPilot brings a Copilot-style chat experience into a dedicated side panel. The extension streams responses from any language model exposed through VS Code's `vscode.lm` API, optionally applies suggested edits, and keeps review tooling (diffs, status-bar actions) in sync with what the AI changed.
 
-## Architecture Overview
+## Service Driven Architecture Overview
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐

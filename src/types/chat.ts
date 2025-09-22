@@ -66,7 +66,9 @@ export type WebviewToExtensionMessage =
   | ContextRequestMessage
   | ContextAddMessage
   | ContextRemoveMessage
-  | ContextClearMessage;
+  | ContextClearMessage
+  | GetMcpServersMessage
+  | McpToggleMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
@@ -125,6 +127,16 @@ export interface ContextAddResponseMessage {
   files: ContextFile[];
 }
 
+export interface McpServersResponse {
+  type: 'mcp:servers';
+  servers: string[];
+}
+
+export interface McpServersResponse {
+  type: 'mcp:servers';
+  servers: string[];
+}
+
 /** Triggers file picker UI (not used - handled directly in extension) */
 export interface ContextFilePickerMessage {
   type: 'context:file-picker';
@@ -142,7 +154,8 @@ export type ExtensionToWebviewMessage =
   | ChatCodeAppliedMessage
   | ContextListMessage
   | ContextAddResponseMessage
-  | ContextFilePickerMessage;
+  | ContextFilePickerMessage
+  | McpServersResponse;
 
 /** Used in ChatInput dropdown and languageModel service */
 export interface ModelInfo {

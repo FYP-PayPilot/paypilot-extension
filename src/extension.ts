@@ -30,6 +30,10 @@ let currentAbortController: AbortController | null = null; // For cancelling ong
 // Diff view management
 let diffViewColumn: vscode.ViewColumn | undefined; // Track if diff view is open
 
+// MCP management
+let enableMcp = false;
+let activeServers: string[] = [];
+
 /**
  * TextDocumentContentProvider interface implementation
  * This provides the "left" side of the diff using a custom URI scheme
@@ -747,6 +751,30 @@ export async function activate(context: vscode.ExtensionContext) {
    * MESSAGE HANDLING SYSTEM - Processes chat messages and AI requests
    */
   chatProvider.onMessage(async (msg: any, panel: any) => {
+    if (msg.type === "mcp:selectServers") {
+      activeServers = msg.servers || [];
+      console.log("User selected MCP servers:", activeServers);
+    }
+    if (msg?.type === "mcp:toggle") {
+      enableMcp = !!msg.enabled;
+      console.log("[PayPilot] MCP enabled:", enableMcp);
+      return;
+    }
+    if (msg?.type === "mcp:get") {
+      // const config = vscode.workspace.getConfiguration('mcp');
+      // const currentServers = config.get<{ [key: string]: any }>('servers', {});
+      const currentServers = {
+        context7: {
+          type: "http",
+          url: "https://mcp.context7.com/mcp",
+        },
+      }; // TODO: add a GET request for available MCPs in backend
+      panel.postMessage({
+        type: "mcp:servers",
+        servers: Object.keys(currentServers),
+      });
+      return;
+    }
     if (msg?.type === "chat:ask") {
       try {
         // Use specified model or first available model

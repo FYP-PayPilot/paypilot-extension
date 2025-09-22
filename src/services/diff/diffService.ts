@@ -384,8 +384,10 @@ export class DiffService {
       }
     }
 
+    const diffWasOpen = diffTabs.length > 0;
+
     // if there are any open diff tabs for the specified file, close them
-    if (diffTabs.length > 0) {
+    if (diffWasOpen) {
       try {
         await vscode.window.tabGroups.close(diffTabs, true);
       } catch (error) {
@@ -396,13 +398,17 @@ export class DiffService {
     this.openDiffFiles.delete(filePath); // remove the file path from the set of open diff files
 
     // if the reopenEditor flag is true, reopen the standard editor for the specified file
-    if (reopenEditor) {
-      try {
-        await vscode.window.showTextDocument(vscode.Uri.file(filePath), {
-          preview: false,
-        });
-      } catch (error) {
-        console.warn(`[PayPilot] Unable to reopen editor for ${filePath}:`, error);
+    if (reopenEditor && diffWasOpen) {
+      const alreadyActive =
+        vscode.window.activeTextEditor?.document.uri.fsPath === filePath;
+      if (!alreadyActive) {
+        try {
+          await vscode.window.showTextDocument(vscode.Uri.file(filePath), {
+            preview: false,
+          });
+        } catch (error) {
+          console.warn(`[PayPilot] Unable to reopen editor for ${filePath}:`, error);
+        }
       }
     }
   }

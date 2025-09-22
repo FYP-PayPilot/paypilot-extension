@@ -347,15 +347,8 @@ export class MessageHandlerService {
     const sortedModifications = this.fileModService.sortModificationsByDependency(fileModifications);
     const backups = await this.fileModService.createBackups(sortedModifications);
 
-    const modificationsForDiff: Array<{
-      fileName: string;
-      filePath: string;
-      content: string;
-      summary?: string;
-      originalContent: string;
-      linesAdded: number;
-      linesDeleted: number;
-    }> = [];
+    const diffEntries: Array<{ filePath: string; originalContent: string }> = [];
+    const modifiedFileNames: string[] = [];
 
     for (const modification of sortedModifications) {
       try {
@@ -379,15 +372,11 @@ export class MessageHandlerService {
         }
         await document.save();
 
-        modificationsForDiff.push({
-          fileName: modification.fileName,
+        diffEntries.push({
           filePath: modification.filePath,
-          content: modification.content,
-          summary: modification.summary,
           originalContent,
-          linesAdded: diffStats.added,
-          linesDeleted: diffStats.deleted,
         });
+        modifiedFileNames.push(modification.fileName);
 
         panel.postMessage({
           type: "chat:code-applied",
@@ -410,11 +399,11 @@ export class MessageHandlerService {
       }
     }
 
-    if (modificationsForDiff.length > 0) {
-      await this.diffService.trackModifiedFiles(modificationsForDiff);
-      const message = modificationsForDiff.length === 1
-        ? `Review started for ${modificationsForDiff[0].fileName}`
-        : `Review started for ${modificationsForDiff.length} files`;
+    if (diffEntries.length > 0) {
+      await this.diffService.trackModifiedFiles(diffEntries);
+      const message = diffEntries.length === 1
+        ? `Review started for ${modifiedFileNames[0]}`
+        : `Review started for ${diffEntries.length} files`;
       this.statusBarService.showTemporaryMessage(message, 3000);
     }
   }

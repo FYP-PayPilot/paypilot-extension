@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ContextService } from "../contextService";
+import { ContextService } from "./contextService";
 
 /**
  * Bridges context-related webview messages with the underlying ContextService.

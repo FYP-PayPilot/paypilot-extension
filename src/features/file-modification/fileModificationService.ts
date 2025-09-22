@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
-import { FileModification } from "../types/fileModification";
-import { ContextFile } from "../types/context";
-import { DiffService } from "./diff/diffService";
+import { FileModification } from "../../types/fileModification";
+import { ContextFile } from "../../types/context";
+import { DiffService } from "../diff/diffService";
 
 /**
  * Service class for handling file modification parsing and resolution
@@ -168,6 +168,8 @@ export class FileModificationService {
 
   /**
    * Helper to extract a filename extension used by the dependency sorter.
+   * @param fileName Name of the file (e.g. `app.ts`).
+   * @returns Extension including the dot (e.g. `.ts`) or empty string if none.
    */
   private getFileExtension(fileName: string): string {
     const lastDot = fileName.lastIndexOf('.');
@@ -242,6 +244,8 @@ export class FileModificationService {
 
   /**
    * Create backup of files before modification
+   * @param modifications Array of file modifications to back up
+   * @returns Map of file paths to their original content
    */
   async createBackups(modifications: FileModification[]): Promise<Map<string, string>> {
     const backups = new Map<string, string>();
@@ -262,6 +266,8 @@ export class FileModificationService {
 
   /**
    * Restore files from backup
+   * @param backups Map of file paths to their backed-up content
+   * @returns Promise that resolves when all files have been restored
    */
   async restoreFromBackups(backups: Map<string, string>): Promise<void> {
     for (const [filePath, content] of backups.entries()) {

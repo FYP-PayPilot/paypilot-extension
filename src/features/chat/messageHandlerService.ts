@@ -1,14 +1,14 @@
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getAvailableModels, getLanguageModel, streamLanguageModel } from "../languageModel";
-import { FileModificationService } from "../fileModificationService";
-import { StatusBarService } from "../statusBarService";
-import { McpService } from "../mcpService";
-import { ContextService } from "../contextService";
+import { getAvailableModels, getLanguageModel, streamLanguageModel } from "../language-model/languageModelService";
+import { FileModificationService } from "../file-modification/fileModificationService";
+import { StatusBarService } from "../diff/statusBarService";
+import { McpService } from "../mcp/mcpService";
+import { ContextService } from "../context/contextService";
 import { PromptService } from "./promptService";
-import { ContextMessageService } from "./contextMessageService";
-import { McpMessageService } from "./mcpMessageService";
-import { ModelMessageService } from "./modelMessageService";
+import { ContextMessageService } from "../context/contextMessageService";
+import { McpMessageService } from "../mcp/mcpMessageService";
+import { ModelMessageService } from "../language-model/modelMessageService";
 import { ChatHistoryService } from "./chatHistoryService";
 import { ChatMessage } from "../../types/chat";
 

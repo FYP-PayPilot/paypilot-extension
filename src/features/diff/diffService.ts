@@ -1,6 +1,6 @@
 import * as path from "path";
 import * as vscode from "vscode";
-import { StatusBarService } from "../statusBarService";
+import { StatusBarService } from "./statusBarService";
 import { OriginalContentProvider } from "./originalContentProvider";
 import { PersistedTrackedFile, TrackedFile } from "../../types/diff";
 

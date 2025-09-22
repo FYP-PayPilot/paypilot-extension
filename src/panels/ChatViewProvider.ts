@@ -3,7 +3,7 @@
  */
 
 import * as vscode from 'vscode';
-import { getWebviewHtml } from '../services/html';
+import { getWebviewHtml } from '../infrastructure/htmlService';
 
 /*
 * ChatViewProvider implements a VS Code WebviewViewProvider to host the React chat panel.

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
-import { MessageHandlerService } from "./services/chat/messageHandlerService";
+import { MessageHandlerService } from "./features/chat/messageHandlerService";
 
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
 

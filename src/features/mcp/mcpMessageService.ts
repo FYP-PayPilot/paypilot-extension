@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { McpService } from "../mcpService";
+import { McpService } from "./mcpService";
 
 /**
  * Handles MCP-related webview requests by delegating to McpService.

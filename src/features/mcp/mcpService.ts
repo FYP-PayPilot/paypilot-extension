@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { McpServerConfig } from "../types/mcp";
+import { McpServerConfig } from "../../types/mcp";
 
 
 /**

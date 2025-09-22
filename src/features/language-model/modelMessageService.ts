@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { getAvailableModels } from "../languageModel";
+import { getAvailableModels } from "./languageModelService";
 
 /**
  * Manages language-model related messages flowing between the webview and VS Code APIs.

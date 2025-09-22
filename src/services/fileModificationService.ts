@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { FileModification } from "../types/fileModification";
 import { ContextFile } from "../types/context";
+import { DiffService } from "./diff/diffService";
 
 /**
  * Service class for handling file modification parsing and resolution
@@ -171,6 +172,72 @@ export class FileModificationService {
   private getFileExtension(fileName: string): string {
     const lastDot = fileName.lastIndexOf('.');
     return lastDot !== -1 ? fileName.substring(lastDot) : '';
+  }
+
+
+  /**
+   * Apply a batch of modifications, handling backups and diff tracking.
+   * @param modifications Parsed modifications to apply.
+   * @param diffService DiffService used to update tracked files.
+   * @param panel Webview panel to report progress/errors to.
+   */
+  async applyModifications(
+    modifications: FileModification[],
+    diffService: DiffService,
+    panel: vscode.Webview
+  ): Promise<void> {
+    const sortedModifications = this.sortModificationsByDependency(modifications);
+    const backups = await this.createBackups(sortedModifications);
+    const diffEntries: Array<{ filePath: string; originalContent: string }> = [];
+
+    for (const modification of sortedModifications) {
+      try {
+        const uri = vscode.Uri.file(modification.filePath);
+        const document = await vscode.workspace.openTextDocument(uri);
+        const originalContent = document.getText();
+        const originalLines = originalContent.split("\n");
+        const newLines = modification.content.split("\n");
+        const diffStats = diffService.calculateDiffStats(originalLines, newLines);
+
+        const edit = new vscode.WorkspaceEdit();
+        const fullRange = new vscode.Range(
+          document.positionAt(0),
+          document.positionAt(originalContent.length)
+        );
+        edit.replace(uri, fullRange, modification.content);
+
+        const applied = await vscode.workspace.applyEdit(edit);
+        if (!applied) {
+          throw new Error(`Unable to apply edits for ${modification.fileName}`);
+        }
+        await document.save();
+
+        diffEntries.push({ filePath: modification.filePath, originalContent });
+
+        panel.postMessage({
+          type: "chat:code-applied",
+          fileName: modification.fileName,
+          filePath: modification.filePath,
+          linesAdded: diffStats.added,
+          linesDeleted: diffStats.deleted,
+          explanation: modification.summary || `Updated ${modification.fileName}`,
+        });
+      } catch (error) {
+        console.error(`[PayPilot] Error applying ${modification.fileName}:`, error);
+        if (backups.size > 0) {
+          await this.restoreFromBackups(backups);
+        }
+        panel.postMessage({
+          type: "chat:error",
+          error: `Failed to modify ${modification.fileName}: ${error}`,
+        });
+        return;
+      }
+    }
+
+    if (diffEntries.length > 0) {
+      await diffService.trackModifiedFiles(diffEntries);
+    }
   }
 
   /**

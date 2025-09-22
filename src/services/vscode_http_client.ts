@@ -52,7 +52,9 @@ export async function getAvailableModels(): Promise<ModelInfo[]> {
  */
 export async function streamChatAgent(
   modelId: string,
-  prompt: string,
+  userPrompt: string,
+  fileContext: string,
+  editorContext: string,
   abortSignal?: AbortSignal
 ): Promise<string> {
   console.log(`[PayPilot] Using streamChatAgent via FastAPI with model: ${modelId}`);
@@ -73,7 +75,9 @@ export async function streamChatAgent(
       },
       body: JSON.stringify({
         model_id: modelId,
-        prompt: prompt
+        user_prompt: userPrompt,
+        file_context: fileContext,
+        editor_context: editorContext
       }),
       signal: controller.signal
     });
@@ -103,7 +107,9 @@ export async function streamChatAgent(
  */
 export async function streamChatUI(
   modelId: string,
-  prompt: string,
+  userPrompt: string,
+  fileContext: string,
+  editorContext: string,
   onToken: (token: string) => void,
   onComplete: (fullText: string) => void,
   abortSignal?: AbortSignal
@@ -126,7 +132,9 @@ export async function streamChatUI(
       },
       body: JSON.stringify({
         model_id: modelId,
-        prompt: prompt
+        user_prompt: userPrompt,
+        file_context: fileContext,
+        editor_context: editorContext
       }),
       signal: controller.signal
     });

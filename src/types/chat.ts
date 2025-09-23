@@ -230,3 +230,30 @@ export interface ChatState {
   mode: 'agent' | 'ask';              // Current interaction mode
   contextFiles: ContextFile[];        // Files added for context
 }
+
+/** Summary info for chat sessions - used in ChatHistoryService and ChatHistoryPanel
+ * When persistent storage is added this will be expanded to include timestamps, etc.
+ * For now it's just an in-memory list so the rest of the system has a consistent seam to call into.
+ * When real persistence is added this class will own it.
+ */
+export interface ChatSessionSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+}
+
+/** Interface for messages sent between webview and extension
+ * Used in MessageHandlerService and VSCodeContext for type-safe routing
+ */
+export interface ChatMessage {
+  type?: string;
+  prompt?: string;
+  mode?: string;
+  model?: string;
+  contextFiles?: Array<{ filePath: string }>;
+  filePaths?: string[];
+  filePath?: string;
+  title?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
+}

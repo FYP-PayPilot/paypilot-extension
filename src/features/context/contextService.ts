@@ -1,49 +1,34 @@
 import * as vscode from "vscode";
+import { ContextFile } from "../../types/context";
 
 /**
- * Interface for context file data
- */
-export interface ContextFile {
-  filePath: string;
-  fileName: string;
-  content: string;
-  size: number;
-}
-
-/**
- * Interface for file picker options
- */
-export interface FilePickerOptions {
-  canSelectFiles: boolean;
-  canSelectFolders: boolean;
-  canSelectMany: boolean;
-  openLabel: string;
-  filters?: Record<string, string[]>;
-}
-
-/**
- * Service class for handling context file operations
+ * Service to manage context files for AI interactions
+ * Allows adding/removing files, browsing workspace and external files
  */
 export class ContextService {
-  private contextFiles: Map<string, ContextFile> = new Map();
+
+  private contextFiles: Map<string, ContextFile> = new Map(); // key: filePath, value: ContextFile
 
   /**
-   * Handle context file request - show VS Code workspace file picker
+   * Prompt the user to pick workspace or external files to seed the AI context.
+   * Called from MessageHandlerService.handleContextRequest when the chat UI asks for more files.
+   * @returns Promise resolving to the ContextFile entries that were added to the session.
    */
   async requestContextFiles(): Promise<ContextFile[]> {
     try {
-      // Get all files in the workspace
+      // Discover workspace files up front so the quick pick can list them.
       const workspaceFiles = await vscode.workspace.findFiles(
         "**/*", // Include all files
         "**/node_modules/**" // Exclude node_modules
-      );
+      ); 
 
+      // Abort early if there is nothing to offer.
       if (workspaceFiles.length === 0) {
         vscode.window.showInformationMessage("No files found in workspace");
         return [];
       }
 
-      // Create quick pick items from workspace files
+      // Shape each URI into a QuickPick item so the user can recognise and select it.
       const quickPickItems = workspaceFiles.map((file) => {
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(file);
         const relativePath = workspaceFolder
@@ -58,7 +43,7 @@ export class ContextService {
         };
       });
 
-      // Add option to browse external files
+      // Prepend an entry that lets the user browse outside the workspace if needed.
       quickPickItems.unshift({
         label: "📁 Browse files outside workspace...",
         description: "Select files from anywhere on your system",
@@ -66,12 +51,12 @@ export class ContextService {
         uri: null as any, // Special marker for browse option
       });
 
-      // Sort workspace files by file name for better UX (keeping browse option at top)
+      // Sort the workspace entries alphabetically while keeping the browse option at the top.
       const browseOption = quickPickItems.shift();
       quickPickItems.sort((a, b) => a.label.localeCompare(b.label));
       quickPickItems.unshift(browseOption!);
 
-      // Show quick pick for file selection
+      // Show the picker and wait for the user to confirm their choices.
       const selectedItems = await vscode.window.showQuickPick(
         quickPickItems,
         {
@@ -82,28 +67,29 @@ export class ContextService {
         }
       );
 
+      // Handle both workspace and external selections if the user picked anything.
       if (selectedItems && selectedItems.length > 0) {
-        // Check if user selected the browse option
+        // Check whether the special browse option was picked so we can open the file dialog.
         const browseOptionSelected = selectedItems.some((item) => !item.uri);
         const workspaceFilesSelected = selectedItems.filter(
           (item) => item.uri
         );
 
-        let contextFiles: ContextFile[] = [];
+        let contextFiles: ContextFile[] = []; // array to hold all context files
 
-        // Process workspace files
+        // Load the selected workspace files from disk.
         if (workspaceFilesSelected.length > 0) {
           const workspaceContextFiles = await this.processWorkspaceFiles(workspaceFilesSelected);
           contextFiles.push(...workspaceContextFiles);
         }
 
-        // Handle external file browsing
+        // Allow the user to add files from outside the workspace if requested.
         if (browseOptionSelected) {
           const externalContextFiles = await this.browseExternalFiles();
           contextFiles.push(...externalContextFiles);
         }
 
-        // Add to context files map
+        // Persist every captured file into the in-memory context map.
         contextFiles.forEach(file => {
           this.contextFiles.set(file.filePath, file);
         });
@@ -119,12 +105,16 @@ export class ContextService {
   }
 
   /**
-   * Process workspace files and convert to ContextFile objects
+   * Load metadata and content for workspace files chosen in the quick pick.
+   * Called internally by requestContextFiles once the user confirms their selection.
+   * @param selectedItems Quick pick entries containing workspace file URIs.
+   * @returns Promise resolving to ContextFile representations of the selections.
    */
   private async processWorkspaceFiles(selectedItems: any[]): Promise<ContextFile[]> {
     return Promise.all(
       selectedItems.map(async (item) => {
         try {
+          // Read the on-disk file and capture its text content.
           const content = await vscode.workspace.fs.readFile(item.uri!);
           const contentStr = Buffer.from(content).toString("utf8");
           const stats = await vscode.workspace.fs.stat(item.uri!);
@@ -149,7 +139,9 @@ export class ContextService {
   }
 
   /**
-   * Browse external files outside workspace
+   * Show an open dialog so the user can add files from outside the workspace.
+   * Called from requestContextFiles when the browse option is selected in the picker.
+   * @returns Promise resolving to ContextFile entries for any external files chosen.
    */
   private async browseExternalFiles(): Promise<ContextFile[]> {
     const externalFiles = await vscode.window.showOpenDialog({
@@ -173,6 +165,7 @@ export class ContextService {
       return Promise.all(
         externalFiles.map(async (file) => {
           try {
+            // Read each external file just like a workspace file.
             const content = await vscode.workspace.fs.readFile(file);
             const contentStr = Buffer.from(content).toString("utf8");
             const stats = await vscode.workspace.fs.stat(file);
@@ -200,7 +193,10 @@ export class ContextService {
   }
 
   /**
-   * Add specific files to context by file paths
+   * Add specific files to the context when the caller already knows their paths.
+   * Called from MessageHandlerService (e.g. handleContextAdd) and during context imports.
+   * @param filePaths Absolute file system paths to add.
+   * @returns Promise resolving to the ContextFile objects successfully added.
    */
   async addFilesToContext(filePaths: string[]): Promise<ContextFile[]> {
     const addedFiles: ContextFile[] = [];
@@ -232,7 +228,10 @@ export class ContextService {
   }
 
   /**
-   * Remove a file from context
+   * Remove a context file by path.
+   * Called from MessageHandlerService.handleContextRemove when the user deletes an entry.
+   * @param filePath Absolute path to drop from the context map.
+   * @returns boolean indicating whether an entry was removed.
    */
   removeFileFromContext(filePath: string): boolean {
     const removed = this.contextFiles.delete(filePath);
@@ -243,7 +242,9 @@ export class ContextService {
   }
 
   /**
-   * Clear all context files
+   * Drop every tracked context file and reset the map.
+   * Called from MessageHandlerService (e.g. handleContextClear and dispose) during cleanup.
+   * @returns void
    */
   clearAllContext(): void {
     this.contextFiles.clear();
@@ -251,65 +252,66 @@ export class ContextService {
   }
 
   /**
-   * Get all context files
+   * Expose the current context files to callers that need richer metadata.
    */
-  getAllContextFiles(): ContextFile[] {
+  getContextFiles(): ContextFile[] {
     return Array.from(this.contextFiles.values());
   }
 
   /**
-   * Get context file by path
+   * Compose the currently tracked context files into a prompt-friendly string.
+   * Called from MessageHandlerService.handleChatAsk right before invoking the language model.
+   * @returns String containing annotated file sections, or an empty string when no context exists.
    */
-  getContextFile(filePath: string): ContextFile | undefined {
-    return this.contextFiles.get(filePath);
-  }
 
   /**
-   * Check if file is in context
+   * Capture the active editor content or focused selection to feed into chat prompts.
+   * Applies the same trimming logic that MessageHandlerService previously embedded.
    */
-  hasContextFile(filePath: string): boolean {
-    return this.contextFiles.has(filePath);
-  }
+  getActiveEditorContext(maxContextChars: number): string {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || maxContextChars <= 0) {
+      return '';
+    }
 
-  /**
-   * Get context files summary
-   */
-  getContextSummary(): {
-    totalFiles: number;
-    totalSize: number;
-    fileNames: string[];
-    averageSize: number;
-  } {
-    const files = this.getAllContextFiles();
-    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-    
-    return {
-      totalFiles: files.length,
-      totalSize,
-      fileNames: files.map(f => f.fileName),
-      averageSize: files.length > 0 ? totalSize / files.length : 0
-    };
-  }
+    const documentText = editor.document.getText();
+    if (documentText.length <= maxContextChars) {
+      return documentText;
+    }
 
-  /**
-   * Build context content string for AI prompt
-   */
+    const selection = editor.selection;
+    if (!selection.isEmpty) {
+      return editor.document.getText(selection);
+    }
+
+    const cursorPosition = selection.active;
+    const lineNumber = cursorPosition.line;
+    const totalLines = editor.document.lineCount;
+
+    const contextRadius = Math.floor(maxContextChars / 80);
+    const startLine = Math.max(0, lineNumber - contextRadius);
+    const endLine = Math.min(totalLines - 1, lineNumber + contextRadius);
+
+    const contextRange = new vscode.Range(
+      startLine, 0, endLine, editor.document.lineAt(endLine).text.length
+    );
+    return editor.document.getText(contextRange);
+  }
   buildContextContent(): string {
-    const files = this.getAllContextFiles();
-    
+    const files = Array.from(this.contextFiles.values());
+
     if (files.length === 0) {
       return "";
     }
 
-    const contextSections = files.map((file) => {
-      return [
-        `--- ${file.fileName} ---`,
-        `Path: ${file.filePath}`,
-        file.content || "// File content not available",
-        `--- End of ${file.fileName} ---`,
-        "",
-      ].join("\n");
-    });
+    // Format each file as a labelled section so the LLM can see filenames and content.
+    const contextSections = files.map((file) => [
+      `--- ${file.fileName} ---`,
+      `Path: ${file.filePath}`,
+      file.content || "// File content not available",
+      `--- End of ${file.fileName} ---`,
+      "",
+    ].join("\n"));
 
     return [
       "--- Additional Context Files ---",
@@ -319,139 +321,4 @@ export class ContextService {
     ].join("\n");
   }
 
-  /**
-   * Filter context files by extension
-   */
-  filterByExtension(extension: string): ContextFile[] {
-    return this.getAllContextFiles().filter(file => 
-      file.fileName.toLowerCase().endsWith(extension.toLowerCase())
-    );
-  }
-
-  /**
-   * Filter context files by size
-   */
-  filterBySize(minSize: number = 0, maxSize: number = Number.MAX_SAFE_INTEGER): ContextFile[] {
-    return this.getAllContextFiles().filter(file => 
-      file.size >= minSize && file.size <= maxSize
-    );
-  }
-
-  /**
-   * Search context files by content
-   */
-  searchByContent(searchTerm: string, caseSensitive: boolean = false): ContextFile[] {
-    const term = caseSensitive ? searchTerm : searchTerm.toLowerCase();
-    
-    return this.getAllContextFiles().filter(file => {
-      const content = caseSensitive ? file.content : file.content.toLowerCase();
-      return content.includes(term);
-    });
-  }
-
-  /**
-   * Validate context file
-   */
-  validateContextFile(file: ContextFile): { valid: boolean; errors: string[] } {
-    const errors: string[] = [];
-
-    if (!file.filePath || file.filePath.trim() === '') {
-      errors.push('File path is required');
-    }
-
-    if (!file.fileName || file.fileName.trim() === '') {
-      errors.push('File name is required');
-    }
-
-    if (file.content === undefined || file.content === null) {
-      errors.push('File content is required');
-    }
-
-    if (file.size < 0) {
-      errors.push('File size cannot be negative');
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors
-    };
-  }
-
-  /**
-   * Get context service statistics
-   */
-  getStats(): {
-    totalFiles: number;
-    totalSizeBytes: number;
-    totalSizeMB: number;
-    largestFile: string | null;
-    smallestFile: string | null;
-    extensions: Record<string, number>;
-  } {
-    const files = this.getAllContextFiles();
-    const totalSizeBytes = files.reduce((sum, file) => sum + file.size, 0);
-    
-    let largestFile: ContextFile | undefined;
-    let smallestFile: ContextFile | undefined;
-    const extensions: Record<string, number> = {};
-
-    files.forEach(file => {
-      // Track largest/smallest files
-      if (!largestFile || file.size > largestFile.size) {
-        largestFile = file;
-      }
-      if (!smallestFile || file.size < smallestFile.size) {
-        smallestFile = file;
-      }
-
-      // Count extensions
-      const ext = file.fileName.split('.').pop()?.toLowerCase() || 'no-extension';
-      extensions[ext] = (extensions[ext] || 0) + 1;
-    });
-
-    return {
-      totalFiles: files.length,
-      totalSizeBytes,
-      totalSizeMB: Math.round((totalSizeBytes / (1024 * 1024)) * 100) / 100,
-      largestFile: largestFile ? largestFile.fileName : null,
-      smallestFile: smallestFile ? smallestFile.fileName : null,
-      extensions
-    };
-  }
-
-  /**
-   * Export context files list
-   */
-  exportContextList(): {
-    exportedAt: string;
-    files: Array<{
-      fileName: string;
-      filePath: string;
-      size: number;
-    }>;
-  } {
-    return {
-      exportedAt: new Date().toISOString(),
-      files: this.getAllContextFiles().map(file => ({
-        fileName: file.fileName,
-        filePath: file.filePath,
-        size: file.size
-      }))
-    };
-  }
-
-  /**
-   * Import context files from exported list
-   */
-  async importContextList(exportData: any): Promise<number> {
-    if (!exportData.files || !Array.isArray(exportData.files)) {
-      throw new Error('Invalid export data format');
-    }
-
-    const filePaths = exportData.files.map((f: any) => f.filePath);
-    const addedFiles = await this.addFilesToContext(filePaths);
-    
-    console.log(`[PayPilot] Imported ${addedFiles.length} context files`);
-    return addedFiles.length;
-  }
 }

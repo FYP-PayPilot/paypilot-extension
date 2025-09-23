@@ -1,18 +1,22 @@
 import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
-import { MessageHandlerService } from "./services/messageHandlerService";
+import { MessageHandlerService } from "./features/chat/messageHandlerService";
 
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
 
+/**
+ * Entrypoint for the PayPilot extension. Wires up the chat panel, commands,
+ * and long-lived services.
+ */
 export async function activate(context: vscode.ExtensionContext) {
-  
   console.log("PayPilot extension is active");
 
-  messageHandlerService = new MessageHandlerService(); // initialise message handler service
+  // Spin up the coordinator that owns diff/context/mcp services.
+  messageHandlerService = new MessageHandlerService(context.workspaceState);
 
-  const chatProvider = new ChatViewProvider(context); // initialize chat view provider
+  const chatProvider = new ChatViewProvider(context);
 
-  // Auto-inject context7 MCP server if not already present
+  // Ensure the recommended context7 MCP server is registered in user settings.
   await messageHandlerService.getMcpService().ensureContext7McpServer();
 
   // Register webview view provider for chat panel into extension context
@@ -26,7 +30,7 @@ export async function activate(context: vscode.ExtensionContext) {
     )
   );
 
-  // Track chat panel visibility
+  // Relay visibility so the status bar buttons only appear when the panel is open.
   chatProvider.onVisibilityChange((visible) => {
     messageHandlerService?.setChatPanelVisibility(visible);
   });
@@ -44,15 +48,16 @@ export async function activate(context: vscode.ExtensionContext) {
     );
   }
 
-  // Register command to open chat view into extension context
+  // Register command to open the chat view.
   context.subscriptions.push(
     vscode.commands.registerCommand("paypilot.openChat", async () => {
-      await vscode.commands.executeCommand("paypilotChatView.focus"); // Focus chat panel
+      await vscode.commands.executeCommand("paypilotChatView.focus");
     })
   );
 
   // Register diff-related commands
   context.subscriptions.push(
+    // Diff commands always go through the service so status buttons stay in sync.
     vscode.commands.registerCommand("paypilot.openDiff", async () => {
       if (messageHandlerService) {
         // Simple diff flow - always open diff view
@@ -61,7 +66,7 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Register command to accept all changes
+  // Diff-related commands always go through the service so state stays in sync with the status bar.
   context.subscriptions.push(
     vscode.commands.registerCommand("paypilot.acceptAllChanges", async () => {
       if (messageHandlerService) {
@@ -71,7 +76,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Register command to reject all changes
   context.subscriptions.push(
     vscode.commands.registerCommand("paypilot.rejectAllChanges", async () => {
       if (messageHandlerService) {
@@ -81,7 +85,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Register command to keep current file changes
   context.subscriptions.push(
     vscode.commands.registerCommand("paypilot.keepCurrentFile", async () => {
       if (messageHandlerService) {
@@ -91,7 +94,6 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  // Register command to undo current file changes
   context.subscriptions.push(
     vscode.commands.registerCommand("paypilot.undoCurrentFile", async () => {
       if (messageHandlerService) {
@@ -110,17 +112,18 @@ export async function activate(context: vscode.ExtensionContext) {
     })
   );
 
-  /**
-   * MESSAGE HANDLING SYSTEM - Processes chat messages and AI requests
-   */
-  chatProvider.onMessage(async (msg: any, panel: any) => {
+  // Bridge the webview messages back into the message handler.
+  chatProvider.onMessage(async (msg: unknown, panel: vscode.Webview) => {
     if (messageHandlerService) {
       await messageHandlerService.handleMessage(msg, panel);
     }
   });
 }
 
-export function deactivate() {
+/**
+ * VS Code deactivation hook. Disposes long-lived services so they can clean up.
+ */
+export function deactivate(): void {
   messageHandlerService?.dispose();
   messageHandlerService = undefined;
 }

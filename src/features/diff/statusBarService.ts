@@ -1,17 +1,6 @@
 import * as vscode from "vscode";
 
 /**
- * Interface for status bar button configuration
- */
-export interface StatusBarButtonConfig {
-  text: string;
-  command: string;
-  tooltip: string;
-  priority: number;
-  backgroundColor?: vscode.ThemeColor;
-}
-
-/**
  * Service class for managing PayPilot related status bar items.
  */
 export class StatusBarService {
@@ -20,9 +9,13 @@ export class StatusBarService {
   private viewDiffButton: vscode.StatusBarItem | undefined;
   private keepButton: vscode.StatusBarItem | undefined;
   private undoButton: vscode.StatusBarItem | undefined;
-  private sequentialProgressItem: vscode.StatusBarItem | undefined;
   private chatPanelVisible = false;
 
+  /**
+   * Track whether the chat panel is visible so we only surface buttons when the UI is open.
+   * Called from MessageHandlerService.setChatPanelVisibility when the panel toggles.
+   * @param visible True when the chat webview is visible.
+   */
   setChatPanelVisibility(visible: boolean): void {
     this.chatPanelVisible = visible;
     if (!visible) {
@@ -30,6 +23,14 @@ export class StatusBarService {
     }
   }
 
+  /**
+   * Render the full PayPilot diff control surface in the status bar.
+   * Called from DiffService.updateStatusBarButtons whenever tracked-file state changes.
+   * @param hasAnyChanges True when there are tracked edits across the workspace.
+   * @param currentFileHasChanges True when the active editor corresponds to a tracked file.
+   * @param totalFileCount Count of tracked files, shown on Accept/Reject All buttons.
+   * @param currentFileDiffOpen True when the active file already has a diff tab open.
+   */
   showEnhancedDiffButtons(
     hasAnyChanges: boolean,
     currentFileHasChanges: boolean,
@@ -41,6 +42,7 @@ export class StatusBarService {
       return;
     }
 
+    // Reset any existing PayPilot buttons so we render a fresh set that reflects current state.
     this.cleanupDiffButtons();
 
     this.acceptAllButton = this.createStatusBarButton({
@@ -64,6 +66,7 @@ export class StatusBarService {
     });
 
     if (currentFileHasChanges) {
+      // Active editor belongs to a tracked file, so surface per-file actions.
       this.viewDiffButton = this.createStatusBarButton({
         text: currentFileDiffOpen ? "$(x) Close Diff" : "$(diff) View Diff",
         command: "paypilot.toggleCurrentDiff",
@@ -87,6 +90,7 @@ export class StatusBarService {
         backgroundColor: new vscode.ThemeColor("statusBarItem.errorBackground"),
       });
     } else {
+      // No tracked changes in the active editor, ensure per-file buttons are cleared.
       if (this.viewDiffButton) {
         this.viewDiffButton.dispose();
         this.viewDiffButton = undefined;
@@ -102,75 +106,31 @@ export class StatusBarService {
     }
   }
 
-  showProgress(message: string): vscode.StatusBarItem {
-    const progressItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      1998
-    );
-    progressItem.text = `$(loading~spin) ${message}`;
-    progressItem.tooltip = "PayPilot operation in progress";
-    progressItem.show();
-    return progressItem;
-  }
 
-  hideProgress(progressItem: vscode.StatusBarItem): void {
-    progressItem.dispose();
-  }
-
-  showSequentialProgress(message: string, current: number, total: number): void {
-    if (this.sequentialProgressItem) {
-      this.sequentialProgressItem.dispose();
-    }
-
-    this.sequentialProgressItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      1997
-    );
-    this.sequentialProgressItem.text = `$(diff) ${message}`;
-    this.sequentialProgressItem.tooltip = `Sequential diff review: ${current} of ${total} files`;
-    this.sequentialProgressItem.show();
-  }
-
-  hideSequentialProgress(): void {
-    if (this.sequentialProgressItem) {
-      this.sequentialProgressItem.dispose();
-      this.sequentialProgressItem = undefined;
-    }
-  }
-
-  showTemporaryMessage(message: string, duration: number = 3000): void {
-    const item = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      1996
-    );
-    item.text = message;
-    item.show();
-
-    setTimeout(() => item.dispose(), duration);
-  }
-
-  createCustomButton(config: StatusBarButtonConfig): vscode.StatusBarItem {
-    return this.createStatusBarButton({
-      text: config.text,
-      command: config.command,
-      tooltip: config.tooltip,
-      priority: config.priority,
-      backgroundColor: config.backgroundColor,
-    });
-  }
-
+  /**
+   * Dispose every PayPilot-specific status bar item.
+   * Called internally when the chat panel is hidden or there are no tracked changes.
+   * Also called from dispose() to clean up when the extension is deactivated.
+   * @returns void
+   */
   cleanupStatusBarItems(): void {
     this.cleanupDiffButtons();
-    if (this.sequentialProgressItem) {
-      this.sequentialProgressItem.dispose();
-      this.sequentialProgressItem = undefined;
-    }
   }
 
+  /**
+   * Dispose the service and the items it manages.
+   * Called from the extension deactivation handler.
+   * @returns void
+   */
   dispose(): void {
     this.cleanupStatusBarItems();
   }
 
+  /**
+   * Helper to dispose of every tracked button reference so we do not leak items.
+   * Called internally when the chat panel is hidden or there are no tracked changes.
+   * @returns void
+   */
   private cleanupDiffButtons(): void {
     if (this.acceptAllButton) {
       this.acceptAllButton.dispose();
@@ -194,6 +154,12 @@ export class StatusBarService {
     }
   }
 
+  /**
+   * Factory for standardised status bar buttons used by PayPilot.
+   * Called internally to create each button instance.
+   * @param config Label, command, tooltip, and priority for the button.
+   * @returns The created and shown StatusBarItem instance.
+   */
   private createStatusBarButton(config: {
     text: string;
     command: string;

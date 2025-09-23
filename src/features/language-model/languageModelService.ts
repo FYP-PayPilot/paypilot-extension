@@ -6,7 +6,7 @@
  */
 
 import * as vscode from 'vscode';
-import { ModelInfo } from '../types/chat';
+import { ModelInfo } from '../../types/chat';
 
 /**
  * Get all available VS Code language models

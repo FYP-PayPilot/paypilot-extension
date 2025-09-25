@@ -94,13 +94,13 @@ export class MessageHandlerService {
         await this.contextMessageService.respondToContextRequest(panel);
         break;
       case "context:add":
-        await this.contextMessageService.addFiles(message?.filePaths);
+        await this.contextMessageService.addFiles(message?.filePaths, panel);
         break;
       case "context:remove":
-        this.contextMessageService.removeFile(message?.filePath);
+        this.contextMessageService.removeFile(message?.filePath, panel);
         break;
       case "context:clear":
-        this.contextMessageService.clearAll();
+        this.contextMessageService.clearAll(panel);
         break;
       case "mcp:toggle":
         this.mcpMessageService.toggle(Boolean(message?.enabled));
@@ -245,7 +245,12 @@ export class MessageHandlerService {
       if (fileModifications.length === 0) {
         panel.postMessage({ type: "chat:done", text: fullResponse });
       } else {
-        await this.fileModService.applyModifications(fileModifications, this.diffService, panel);
+        await this.fileModService.applyModifications(
+          fileModifications,
+          this.diffService,
+          panel,
+          this.contextMessageService
+        );
       }
     } catch (agentError) {
       this.currentAbortController = null;

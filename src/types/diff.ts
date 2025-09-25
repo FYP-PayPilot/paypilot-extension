@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { FileOperation } from './fileModification';
 
 /**
  * Snapshot of a file tracked for AI modifications.
@@ -7,6 +8,7 @@ import * as vscode from 'vscode';
 export interface TrackedFile {
   readonly originalUri: vscode.Uri;
   readonly originalContent: string;
+  readonly operation: FileOperation;
 }
 
 /**
@@ -16,5 +18,5 @@ export interface TrackedFile {
 export interface PersistedTrackedFile {
   readonly filePath: string;
   readonly originalContent: string;
+  readonly operation: FileOperation;
 }
-

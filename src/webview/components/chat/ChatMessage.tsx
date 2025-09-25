@@ -235,6 +235,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           linesAdded={message.codeApplied.linesAdded}
           linesDeleted={message.codeApplied.linesDeleted}
           explanation={message.codeApplied.explanation}
+          operation={message.codeApplied.operation}
           onCardClick={handleFileClick}
         />
       </div>

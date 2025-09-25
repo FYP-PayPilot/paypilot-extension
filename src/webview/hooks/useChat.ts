@@ -257,7 +257,8 @@ export const useChat = () => {
                   filePath: message.filePath,
                   linesAdded: message.linesAdded,
                   linesDeleted: message.linesDeleted,
-                  explanation: message.explanation
+                  explanation: message.explanation,
+                  operation: message.operation
                 }
               };
             } else {
@@ -272,7 +273,8 @@ export const useChat = () => {
                   filePath: message.filePath,
                   linesAdded: message.linesAdded,
                   linesDeleted: message.linesDeleted,
-                  explanation: message.explanation
+                  explanation: message.explanation,
+                  operation: message.operation
                 }
               };
               messages.push(newMessage);

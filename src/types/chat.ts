@@ -136,6 +136,7 @@ export interface ChatCodeAppliedMessage {
   linesAdded: number;
   linesDeleted: number;
   explanation: string;
+  operation: 'create' | 'update' | 'delete';
 }
 
 /** Sent to update context files list in UI */
@@ -220,6 +221,7 @@ export interface ChatMessage {
     linesAdded: number;
     linesDeleted: number;
     explanation: string;
+    operation: 'create' | 'update' | 'delete';
   };
 }
 

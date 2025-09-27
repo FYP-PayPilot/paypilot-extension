@@ -11,9 +11,6 @@
     "Other"
   ],
   "main": "./dist/extension.js",
-  "enabledApiProposals": [
-    "chatProvider"
-  ],
   "contributes": {
     "commands": [
       {
@@ -74,7 +71,45 @@
           "icon": "$(credit-card)"
         }
       ]
-    }
+    },
+    "languageModelTools": [
+      {
+        "name": "paypilot-workspaceContext",
+        "displayName": "PayPilot Workspace Context",
+        "modelDescription": "Fetch context about the current workspace",
+        "tags": [
+          "workspace",
+          "read"
+        ]
+      },
+      {
+        "name": "paypilot-createFile",
+        "displayName": "PayPilot Create File",
+        "modelDescription": "Create a new file in the workspace",
+        "tags": [
+          "workspace",
+          "write"
+        ]
+      },
+      {
+        "name": "paypilot-updateFile",
+        "displayName": "PayPilot Update File",
+        "modelDescription": "Update an existing file in the workspace",
+        "tags": [
+          "workspace",
+          "edit"
+        ]
+      },
+      {
+        "name": "paypilot-deleteFile",
+        "displayName": "PayPilot Delete File",
+        "modelDescription": "Delete a file from the workspace",
+        "tags": [
+          "workspace",
+          "delete"
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "node esbuild.js --production",

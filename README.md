@@ -55,9 +55,6 @@ Each folder under `src/features` represents a domain module that owns its logic 
 - `originalContentProvider.ts`: Implements `vscode.TextDocumentContentProvider` so diff editors can show captured baselines.
 - `statusBarService.ts`: Renders Accept/Reject/Keep/Undo/View Diff buttons when tracked changes exist. **VS Code APIs:** `vscode.window.createStatusBarItem`, `vscode.StatusBarAlignment`, `vscode.ThemeColor`.
 
-### File Modification Domain (`src/features/file-modification`)
-- `fileModificationService.ts`: Parses streamed AI output, resolves file paths, applies edits, and reports results to the panel. **VS Code APIs:** `vscode.window.activeTextEditor`, `vscode.workspace.openTextDocument`, `vscode.window.showTextDocument`, `vscode.WorkspaceEdit`, `vscode.Range`, `vscode.workspace.applyEdit`, `vscode.workspace.fs.readFile`, `vscode.workspace.fs.stat`, `vscode.Uri.file`, `vscode.Webview.postMessage`.
-
 ### Context Domain (`src/features/context`)
 - `contextService.ts`: Manages context files chosen by the user, including workspace discovery and external file browsing. **VS Code APIs:** `vscode.workspace.findFiles`, `vscode.workspace.getWorkspaceFolder`, `vscode.workspace.asRelativePath`, `vscode.window.showQuickPick`, `vscode.window.showOpenDialog`, `vscode.workspace.fs.readFile`, `vscode.workspace.fs.stat`.
 - `contextMessageService.ts`: Bridges chat requests (add/remove/clear/context pickup) to `ContextService` and forwards results.
@@ -87,8 +84,8 @@ Each folder under `src/features` represents a domain module that owns its logic 
 
 ### Agent Mode (code edits)
 1. Webview includes `mode: 'agent'` plus optional context file hints.
-2. `MessageHandlerService` gathers editor context (`ContextService`), streams the language model response, then calls `fileModificationService` to parse any `File:` blocks.
-3. Edits write through a `WorkspaceEdit`; successful applications emit `chat:code-applied` back to the webview.
+2. `MessageHandlerService` gathers editor context (`ContextService`), streams the language model response, and responds to tool calls (`paypilot-…` tools) by invoking `vscode.lm.invokeTool`.
+3. Tool executions perform the requested filesystem changes and emit `chat:code-applied` updates back to the webview.
 4. `DiffService.trackModifiedFiles` snapshots originals and refreshes status-bar controls via `StatusBarService`.
 5. Accept/Reject/Keep/Undo commands (triggered via status bar or command palette) call `diffService` methods to manage the tracked files.
 
@@ -100,7 +97,7 @@ Each folder under `src/features` represents a domain module that owns its logic 
 | Chat orchestration | `src/features/chat/messageHandlerService.ts` | `Memento`, `workspace.getConfiguration`, `CancellationTokenSource`, `window.showInformationMessage`, `window.showWarningMessage`, `Webview.postMessage` |
 | Language models | `src/features/language-model/languageModelService.ts` | `lm.selectChatModels`, `LanguageModelChatMessage.User`, `LanguageModelChat.sendRequest`, `CancellationTokenSource` |
 | Context capture | `src/features/context/contextService.ts` | `workspace.findFiles`, `window.showQuickPick`, `window.showOpenDialog`, `workspace.fs.readFile`, `workspace.fs.stat`, `workspace.asRelativePath` |
-| File edits | `src/features/file-modification/fileModificationService.ts` | `workspace.openTextDocument`, `window.showTextDocument`, `WorkspaceEdit`, `Range`, `workspace.applyEdit`, `workspace.fs.readFile`, `workspace.fs.stat`, `Uri.file` |
+| LLM tools | `src/tools.ts`, `src/utils/workspace.ts` | `lm.registerTool`, `lm.invokeTool`, `workspace.fs.writeFile`, `workspace.fs.delete`, `workspace.findFiles` |
 | Diff & review | `src/features/diff/diffService.ts`, `src/features/diff/originalContentProvider.ts`, `src/features/diff/statusBarService.ts` | `workspace.registerTextDocumentContentProvider`, `commands.executeCommand('vscode.diff')`, `window.tabGroups`, `window.createStatusBarItem`, `ThemeColor` |
 | MCP integration | `src/features/mcp/mcpService.ts`, `src/features/mcp/mcpMessageService.ts` | `workspace.getConfiguration`, `ConfigurationTarget.Global`, `Webview.postMessage` |
 | Webview HTML | `src/infrastructure/htmlService.ts` | `webview.cspSource`, `webview.asWebviewUri`, `Uri.joinPath` |

@@ -9,7 +9,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onChatParticipant:paypilot"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "chatParticipants": [
@@ -19,6 +21,44 @@
         "fullName": "PayPilot",
         "description": "Allow easy integration of PayPal APIs into your applications.",
         "isSticky": true
+      }
+    ],
+    "languageModelTools": [
+      {
+        "name": "paypilot-workspaceContext",
+        "displayName": "PayPilot Workspace Context",
+        "modelDescription": "Fetch context about the current workspace",
+        "tags": [
+          "workspace",
+          "read"
+        ]
+      },
+      {
+        "name": "paypilot-createFile",
+        "displayName": "PayPilot Create File",
+        "modelDescription": "Create a new file in the workspace",
+        "tags": [
+          "workspace",
+          "write"
+        ]
+      },
+      {
+        "name": "paypilot-updateFile",
+        "displayName": "PayPilot Update File",
+        "modelDescription": "Update an existing file in the workspace",
+        "tags": [
+          "workspace",
+          "edit"
+        ]
+      },
+      {
+        "name": "paypilot-deleteFile",
+        "displayName": "PayPilot Delete File",
+        "modelDescription": "Delete a file from the workspace",
+        "tags": [
+          "workspace",
+          "delete"
+        ]
       }
     ]
   },

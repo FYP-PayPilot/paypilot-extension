@@ -10,6 +10,8 @@ export interface TrackedFile {
   readonly originalUri: vscode.Uri;
   readonly originalContent: string;
   readonly operation: FileOperation;
+  readonly isDirectory?: boolean;
+  readonly directorySnapshot?: string;
 }
 
 /**
@@ -20,4 +22,6 @@ export interface PersistedTrackedFile {
   readonly filePath: string;
   readonly originalContent: string;
   readonly operation: FileOperation;
+  readonly isDirectory?: boolean;
+  readonly directorySnapshot?: string;
 }

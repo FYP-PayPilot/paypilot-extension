@@ -65,11 +65,15 @@ export class DiffService {
       const originalUri = this.toOriginalUri(record.filePath); // create a URI for the original content
       const originalContent = record.originalContent ?? ""; // get the original content, defaulting to an empty string if undefined
       const operation: FileOperation = record.operation ?? "update"; // default to update for legacy entries
-      this.originalContentProvider.setOriginalContent(originalUri, originalContent); // set the original uri and content for each tracked file in the contentByUri map
+      if (!record.isDirectory) {
+        this.originalContentProvider.setOriginalContent(originalUri, originalContent);
+      }
       this.trackedFiles.set(record.filePath, { // set the original uri and content for each tracked file in the trackedFiles map
         originalUri,
         originalContent,
         operation,
+        isDirectory: record.isDirectory,
+        directorySnapshot: record.directorySnapshot,
       });
     }
 
@@ -92,6 +96,8 @@ export class DiffService {
         filePath,
         originalContent: entry.originalContent,
         operation: entry.operation,
+        isDirectory: entry.isDirectory,
+        directorySnapshot: entry.directorySnapshot,
       })
     );
 
@@ -113,27 +119,38 @@ export class DiffService {
       filePath: string;
       originalContent: string;
       operation: FileOperation;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
     }>
   ): Promise<void> {
     for (const mod of fileModifications) {
-      const { filePath, originalContent, operation } = mod;
+      const { filePath, originalContent, operation, isDirectory, directorySnapshot } = mod;
       const existing = this.trackedFiles.get(filePath);
 
       if (!existing) {
         const originalUri = this.toOriginalUri(filePath);
-        this.originalContentProvider.setOriginalContent(originalUri, originalContent);
+        if (!isDirectory) {
+          this.originalContentProvider.setOriginalContent(originalUri, originalContent);
+        }
         this.trackedFiles.set(filePath, {
           originalUri,
           originalContent,
           operation,
+          isDirectory,
+          directorySnapshot,
         });
         continue;
       }
 
       let nextOriginalContent = existing.originalContent;
+      let nextDirectorySnapshot = existing.directorySnapshot;
+
       if (operation === 'delete') {
         if (originalContent.length > 0 && (existing.operation !== 'delete' || existing.originalContent.length === 0)) {
           nextOriginalContent = originalContent;
+        }
+        if (directorySnapshot && (!existing.directorySnapshot || existing.operation !== 'delete')) {
+          nextDirectorySnapshot = directorySnapshot;
         }
       }
 
@@ -141,12 +158,16 @@ export class DiffService {
         originalUri: existing.originalUri,
         originalContent: nextOriginalContent,
         operation,
+        isDirectory,
+        directorySnapshot: nextDirectorySnapshot,
       };
 
-      this.originalContentProvider.setOriginalContent(
-        nextEntry.originalUri,
-        nextEntry.originalContent
-      );
+      if (!isDirectory) {
+        this.originalContentProvider.setOriginalContent(
+          nextEntry.originalUri,
+          nextEntry.originalContent
+        );
+      }
 
       this.trackedFiles.set(filePath, nextEntry);
     }
@@ -171,7 +192,12 @@ export class DiffService {
       const entry = this.trackedFiles.get(filePath);
       await this.closeDiffForFile(filePath);
       if (entry?.operation === 'delete') {
-        await this.safeDeleteFile(vscode.Uri.file(filePath));
+        const targetUri = vscode.Uri.file(filePath);
+        if (entry.isDirectory) {
+          await this.safeDeleteDirectory(targetUri);
+        } else {
+          await this.safeDeleteFile(targetUri);
+        }
       }
       this.removeTrackedFile(filePath);
     }
@@ -208,7 +234,12 @@ export class DiffService {
     const entry = this.trackedFiles.get(filePath);
     await this.closeDiffForFile(filePath);
     if (entry?.operation === 'delete') {
-      await this.safeDeleteFile(vscode.Uri.file(filePath));
+      const targetUri = vscode.Uri.file(filePath);
+      if (entry.isDirectory) {
+        await this.safeDeleteDirectory(targetUri);
+      } else {
+        await this.safeDeleteFile(targetUri);
+      }
     }
     this.removeTrackedFile(filePath);
     this.updateStatusBarButtons();
@@ -445,36 +476,40 @@ export class DiffService {
     const uri = vscode.Uri.file(filePath);
 
     try {
-      switch (entry.operation) {
-        case "create":
-          await this.safeDeleteFile(uri);
-          break;
-        case 'delete':
-          await this.ensureParentDirectory(uri);
-          await vscode.workspace.fs.writeFile(uri, Buffer.from(entry.originalContent, 'utf8'));
-          if (reopenEditor) {
-            const restoredDocument = await vscode.workspace.openTextDocument(uri);
-            await vscode.window.showTextDocument(restoredDocument, { preview: false });
+      if (entry.isDirectory) {
+        await this.undoDirectoryChange(entry, uri);
+      } else {
+        switch (entry.operation) {
+          case "create":
+            await this.safeDeleteFile(uri);
+            break;
+          case 'delete':
+            await this.ensureParentDirectory(uri);
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(entry.originalContent, 'utf8'));
+            if (reopenEditor) {
+              const restoredDocument = await vscode.workspace.openTextDocument(uri);
+              await vscode.window.showTextDocument(restoredDocument, { preview: false });
+            }
+            break;
+          default: {
+            const document = await vscode.workspace.openTextDocument(uri);
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(
+              document.positionAt(0),
+              document.positionAt(document.getText().length)
+            );
+            edit.replace(uri, fullRange, entry.originalContent);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied) {
+              vscode.window.showErrorMessage(`Failed to undo changes for ${this.getFileName(filePath)}`);
+              return;
+            }
+            await document.save();
+            if (reopenEditor) {
+              await vscode.window.showTextDocument(document, { preview: false });
+            }
+            break;
           }
-          break;
-        default: {
-          const document = await vscode.workspace.openTextDocument(uri);
-          const edit = new vscode.WorkspaceEdit();
-          const fullRange = new vscode.Range(
-            document.positionAt(0),
-            document.positionAt(document.getText().length)
-          );
-          edit.replace(uri, fullRange, entry.originalContent);
-          const applied = await vscode.workspace.applyEdit(edit);
-          if (!applied) {
-            vscode.window.showErrorMessage(`Failed to undo changes for ${this.getFileName(filePath)}`);
-            return;
-          }
-          await document.save();
-          if (reopenEditor) {
-            await vscode.window.showTextDocument(document, { preview: false });
-          }
-          break;
         }
       }
     } catch (error) {
@@ -562,6 +597,63 @@ export class DiffService {
         return;
       }
       console.warn(`[PayPilot] Failed to delete ${uri.fsPath} during undo:`, error);
+    }
+  }
+
+  private async safeDeleteDirectory(uri: vscode.Uri): Promise<void> {
+    try {
+      await vscode.workspace.fs.delete(uri, { recursive: true, useTrash: true });
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+        return;
+      }
+      console.warn(`[PayPilot] Failed to delete directory ${uri.fsPath} during undo:`, error);
+    }
+  }
+
+  private async undoDirectoryChange(entry: TrackedFile, uri: vscode.Uri): Promise<void> {
+    if (entry.operation === 'create') {
+      if (await this.isDirectoryEmpty(uri)) {
+        await this.safeDeleteDirectory(uri);
+      } else {
+        console.warn(`[PayPilot] Skipped removing ${uri.fsPath} because it is not empty.`);
+      }
+      return;
+    }
+
+    if (!entry.directorySnapshot) {
+      return;
+    }
+
+    await this.restoreDirectorySnapshot(uri, entry.directorySnapshot);
+  }
+
+  private async isDirectoryEmpty(uri: vscode.Uri): Promise<boolean> {
+    try {
+      const entries = await vscode.workspace.fs.readDirectory(uri);
+      return entries.length === 0;
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+        return true;
+      }
+      throw error;
+    }
+  }
+
+  private async restoreDirectorySnapshot(baseUri: vscode.Uri, snapshotJson: string): Promise<void> {
+    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = JSON.parse(snapshotJson);
+
+    await vscode.workspace.fs.createDirectory(baseUri);
+
+    for (const entry of entries) {
+      const target = vscode.Uri.joinPath(baseUri, entry.path);
+      if (entry.type === 'directory') {
+        await vscode.workspace.fs.createDirectory(target);
+      } else {
+        await this.ensureParentDirectory(target);
+        const content = entry.content ? Buffer.from(entry.content, 'base64') : Buffer.from('');
+        await vscode.workspace.fs.writeFile(target, content);
+      }
     }
   }
 

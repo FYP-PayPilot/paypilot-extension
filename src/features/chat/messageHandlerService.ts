@@ -239,6 +239,8 @@ export class MessageHandlerService {
       vscode.LanguageModelChatMessage.User(composed),
     ];
     this.agentChangeLog = [];
+    const agentPlan: string[] = [];
+    let planSent = false;
 
     const cancellationTokenSource = new vscode.CancellationTokenSource();
     const { signal } = abortController;
@@ -282,6 +284,28 @@ export class MessageHandlerService {
         }
 
         if (toolCalls.length === 0) {
+          if (!planSent) {
+            const planSteps = agentPlan.length > 0 ? agentPlan : this.parsePlanLines(aggregatedResponse);
+            if (planSteps.length > 0) {
+              if (agentPlan.length === 0) {
+                agentPlan.push(...planSteps);
+              }
+              panel.postMessage({
+                type: 'chat:agent-plan',
+                title: 'Proposed plan',
+                steps: planSteps,
+              });
+              planSent = true;
+            }
+          }
+          if (!planSent && agentPlan.length > 0) {
+            panel.postMessage({
+              type: 'chat:agent-plan',
+              title: 'Proposed plan',
+              steps: agentPlan,
+            });
+            planSent = true;
+          }
           const summary = this.formatAgentChangeSummary();
           const baseText = aggregatedResponse.trim();
           const finalText = summary
@@ -289,15 +313,27 @@ export class MessageHandlerService {
               ? `${baseText}\n\n---\n${summary}`
               : summary
             : aggregatedResponse;
-          panel.postMessage({ type: "chat:done", text: finalText });
+          panel.postMessage({ type: 'chat:done', text: finalText });
           if (summary) {
-            panel.postMessage({ type: "chat:agent-summary", text: summary });
+            panel.postMessage({ type: 'chat:agent-summary', text: summary });
           }
           break;
         }
 
         if (textParts.length > 0) {
           conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+          if (!planSent) {
+            const planSteps = this.extractPlanSteps(textParts);
+            if (planSteps.length > 0) {
+              agentPlan.push(...planSteps);
+              panel.postMessage({
+                type: 'chat:agent-plan',
+                title: 'Proposed plan',
+                steps: planSteps,
+              });
+              planSent = true;
+            }
+          }
         }
 
         for (let index = 0; index < toolCalls.length; index += 1) {
@@ -306,6 +342,18 @@ export class MessageHandlerService {
             const resultPart = await this.invokeToolCall(call, panel);
             conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
             conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+            if (!planSent) {
+              const planSteps = this.extractPlanFromToolResult(resultPart);
+              if (planSteps.length > 0) {
+                agentPlan.push(...planSteps);
+                panel.postMessage({
+                  type: 'chat:agent-plan',
+                  title: 'Proposed plan',
+                  steps: planSteps,
+                });
+                planSent = true;
+              }
+            }
             const hasMoreCalls = index < toolCalls.length - 1;
             this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
           } catch (toolError) {
@@ -467,6 +515,45 @@ export class MessageHandlerService {
     return [`Summary of applied changes:`, ...lines].join("\n");
   }
 
+  private extractPlanSteps(textParts: vscode.LanguageModelTextPart[]): string[] {
+    const raw = textParts
+      .map((part) => part.value)
+      .join('')
+      .trim();
+    return this.parsePlanLines(raw);
+  }
+
+  private extractPlanFromToolResult(
+    resultPart: vscode.LanguageModelToolResultPart
+  ): string[] {
+    const raw = resultPart.content
+      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ''))
+      .join('')
+      .trim();
+    return this.parsePlanLines(raw);
+  }
+
+  private parsePlanLines(raw: string): string[] {
+    if (!raw) {
+      return [];
+    }
+
+    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const steps = lines
+      .filter((line) => /^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i.test(line))
+      .map((line) => line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, '').trim());
+
+    if (steps.length > 0) {
+      return steps;
+    }
+
+    if (lines.length > 1 && raw.toLowerCase().includes('plan')) {
+      return lines;
+    }
+
+    return [];
+  }
+
   private getAskModeTools(): vscode.LanguageModelChatTool[] {
     return this.chatTools.filter((tool) =>
       tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
@@ -505,6 +592,8 @@ export class MessageHandlerService {
         uri: vscode.Uri;
         operation: FileOperation;
         originalContent: string;
+        isDirectory?: boolean;
+        directorySnapshot?: string;
       }
     | undefined
   > {
@@ -537,6 +626,32 @@ export class MessageHandlerService {
           uri: target,
           operation: "delete",
           originalContent: content,
+        };
+      }
+      case CREATE_DIRECTORY_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const snapshot = await this.captureDirectorySnapshot(target);
+        const exists = snapshot !== undefined;
+        return {
+          uri: target,
+          operation: exists ? "update" : "create",
+          originalContent: exists ? snapshot ?? "" : "",
+          isDirectory: true,
+          directorySnapshot: snapshot,
+        };
+      }
+      case DELETE_DIRECTORY_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const snapshot = await this.captureDirectorySnapshot(target);
+        if (!snapshot) {
+          return undefined;
+        }
+        return {
+          uri: target,
+          operation: "delete",
+          originalContent: "",
+          isDirectory: true,
+          directorySnapshot: snapshot,
         };
       }
       default:
@@ -664,11 +779,44 @@ export class MessageHandlerService {
       uri: vscode.Uri;
       operation: FileOperation;
       originalContent: string;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
     },
     call: vscode.LanguageModelToolCallPart,
     result: vscode.LanguageModelToolResult,
     panel: vscode.Webview
   ): Promise<void> {
+    if (context.isDirectory) {
+      await this.diffService.trackModifiedFiles([
+        {
+          filePath: context.uri.fsPath,
+          originalContent: context.originalContent,
+          operation: context.operation,
+          isDirectory: true,
+          directorySnapshot: context.directorySnapshot,
+        },
+      ]);
+
+      if (context.operation === 'delete') {
+        this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+      }
+
+      this.recordAgentChange(
+        `${this.describeOperation(context.operation, context.uri.fsPath)} (${relativeUriPath(context.uri)})`
+      );
+
+      panel.postMessage({
+        type: "chat:code-applied",
+        fileName: path.basename(context.uri.fsPath),
+        filePath: context.uri.fsPath,
+        linesAdded: 0,
+        linesDeleted: 0,
+        explanation: this.describeOperation(context.operation, context.uri.fsPath),
+        operation: context.operation,
+      });
+      return;
+    }
+
     let nextContent = "";
 
     if (context.operation !== "delete") {
@@ -751,6 +899,55 @@ export class MessageHandlerService {
   private async readFileAfterTool(uri: vscode.Uri): Promise<string> {
     const buffer = await vscode.workspace.fs.readFile(uri);
     return Buffer.from(buffer).toString("utf8");
+  }
+
+  private async captureDirectorySnapshot(uri: vscode.Uri): Promise<string | undefined> {
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (!(stat.type & vscode.FileType.Directory)) {
+        return undefined;
+      }
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+        return undefined;
+      }
+      throw error;
+    }
+
+    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = [];
+    await this.collectDirectoryEntries(uri, uri, entries);
+    return JSON.stringify(entries);
+  }
+
+  private async collectDirectoryEntries(
+    baseUri: vscode.Uri,
+    currentUri: vscode.Uri,
+    entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }>
+  ): Promise<void> {
+    const relative = path
+      .relative(baseUri.fsPath, currentUri.fsPath)
+      .replace(/\\/g, '/');
+    if (relative && relative !== '') {
+      entries.push({ path: relative, type: 'directory' });
+    }
+
+    const children = await vscode.workspace.fs.readDirectory(currentUri);
+    for (const [name, type] of children) {
+      const childUri = vscode.Uri.joinPath(currentUri, name);
+      if (type & vscode.FileType.Directory) {
+        await this.collectDirectoryEntries(baseUri, childUri, entries);
+      } else if (type & vscode.FileType.File) {
+        const content = await vscode.workspace.fs.readFile(childUri);
+        const relativeChild = path
+          .relative(baseUri.fsPath, childUri.fsPath)
+          .replace(/\\/g, '/');
+        entries.push({
+          path: relativeChild,
+          type: 'file',
+          content: Buffer.from(content).toString('base64'),
+        });
+      }
+    }
   }
 
   /**

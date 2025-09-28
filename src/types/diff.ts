@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
-import { FileOperation } from './fileModification';
+
+export type FileOperation = 'create' | 'update' | 'delete';
 
 /**
  * Snapshot of a file tracked for AI modifications.

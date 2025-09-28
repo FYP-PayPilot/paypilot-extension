@@ -22,9 +22,22 @@ export function resolveWorkspaceUri(candidate: string, message?: string): vscode
     return uri;
   }
 
-  const normalized = candidate.replace(/\\/g, "/");
+  if (path.isAbsolute(candidate) || /^[A-Za-z]:[\\/]/.test(candidate)) {
+    const absoluteUri = vscode.Uri.file(path.normalize(candidate));
+    const owningFolder = vscode.workspace.getWorkspaceFolder(absoluteUri);
+    if (!owningFolder || !isWithinWorkspaceRoot(owningFolder.uri, absoluteUri)) {
+      throw new Error("The provided path is outside the current workspace.");
+    }
+    return absoluteUri;
+  }
+
+  const segments = candidate
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((segment) => segment.length > 0 && segment !== ".");
+
   for (const folder of folders) {
-    const joined = vscode.Uri.joinPath(folder.uri, normalized);
+    const joined = vscode.Uri.joinPath(folder.uri, ...segments);
     if (isWithinWorkspaceRoot(folder.uri, joined)) {
       return joined;
     }
@@ -43,5 +56,8 @@ export function relativeUriPath(uri: vscode.Uri): string {
 
 export function isWithinWorkspaceRoot(parent: vscode.Uri, candidate: vscode.Uri): boolean {
   const relative = path.relative(parent.fsPath, candidate.fsPath);
-  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
+  if (relative === "") {
+    return true;
+  }
+  return !relative.startsWith("..") && !path.isAbsolute(relative);
 }

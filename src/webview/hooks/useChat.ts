@@ -29,6 +29,21 @@ export const useChat = () => {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
+  const findActiveAssistantMessageIndex = useCallback((messages: ChatMessage[]) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const entry = messages[index];
+      if (
+        entry.role === 'assistant' &&
+        !entry.isWorking &&
+        !entry.codeApplied &&
+        !entry.toolActivity
+      ) {
+        return index;
+      }
+    }
+    return -1;
+  }, []);
+
   // Auto-load models when extension starts
   useEffect(() => {
     postMessage({ type: 'model:list-request' });
@@ -284,19 +299,70 @@ export const useChat = () => {
           });
           break;
 
+        case 'chat:agent-summary':
+          setState(prev => {
+            const messages = [...prev.messages];
+            messages.push({
+              id: generateMessageId(),
+              content: message.text ?? '',
+              role: 'assistant',
+              timestamp: Date.now(),
+            });
+            return {
+              ...prev,
+              messages,
+            };
+          });
+          break;
+
+        case 'chat:tool-activity':
+          setState(prev => {
+            const messages = [...prev.messages];
+            const activityMessage: ChatMessage = {
+              id: generateMessageId(),
+              content: message.title ?? 'Tool activity',
+              role: 'assistant',
+              timestamp: Date.now(),
+              toolActivity: {
+                title: message.title ?? 'Tool activity',
+                detail: message.detail,
+                filePath: message.filePath,
+                operation: message.operation,
+              },
+            };
+
+            if (messages.length > 0 && messages[messages.length - 1].isWorking) {
+              messages[messages.length - 1] = activityMessage;
+            } else {
+              const targetIndex = findActiveAssistantMessageIndex(messages);
+              if (targetIndex >= 0) {
+                messages.splice(targetIndex, 0, activityMessage);
+              } else {
+                messages.push(activityMessage);
+              }
+            }
+
+            return {
+              ...prev,
+              messages,
+            };
+          });
+          break;
+
         case 'chat:stream':
           // Receive and append individual tokens from AI response (ask mode only)
           setState(prev => {
             const messages = [...prev.messages];
-            const lastMessage = messages[messages.length - 1];
-            
-            if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.isWorking) {
+            const targetIndex = findActiveAssistantMessageIndex(messages);
+
+            if (targetIndex >= 0) {
+              const lastMessage = messages[targetIndex];
               // Replace placeholder or append to existing content
               const newContent = lastMessage.content === 'Thinking...' 
                 ? message.token                           // First token replaces placeholder
                 : lastMessage.content + message.token;    // Subsequent tokens append
               
-              messages[messages.length - 1] = {
+              messages[targetIndex] = {
                 ...lastMessage,
                 content: newContent,                      // Updated content triggers re-render
                 isStreaming: true                         // Maintains streaming state
@@ -311,10 +377,11 @@ export const useChat = () => {
           // Streaming complete - finalize message and clear loading state
           setState(prev => {
             const messages = [...prev.messages];
-            const lastMessage = messages[messages.length - 1];
-            
-            if (lastMessage && lastMessage.role === 'assistant') {
-              messages[messages.length - 1] = {
+            const targetIndex = findActiveAssistantMessageIndex(messages);
+
+            if (targetIndex >= 0) {
+              const lastMessage = messages[targetIndex];
+              messages[targetIndex] = {
                 ...lastMessage,
                 content: message.text,                    // Final complete text
                 isStreaming: false                        // Stop streaming updates
@@ -333,11 +400,12 @@ export const useChat = () => {
           // Handle streaming or API errors
           setState(prev => {
             const messages = [...prev.messages];
-            const lastMessage = messages[messages.length - 1];
-            
-            if (lastMessage && lastMessage.role === 'assistant' && lastMessage.isStreaming) {
+            const targetIndex = findActiveAssistantMessageIndex(messages);
+
+            if (targetIndex >= 0) {
+              const lastMessage = messages[targetIndex];
               // Update existing streaming message with error
-              messages[messages.length - 1] = {
+              messages[targetIndex] = {
                 ...lastMessage,
                 content: `Error: ${message.error}`,     // Replace content with error message
                 isStreaming: false                       // Stop streaming state
@@ -431,7 +499,7 @@ export const useChat = () => {
     });
 
     return unsubscribe;                                  // Cleanup listener on unmount
-  }, [onMessage, generateMessageId]);
+  }, [onMessage, generateMessageId, findActiveAssistantMessageIndex]);
 
   return {
     ...state,

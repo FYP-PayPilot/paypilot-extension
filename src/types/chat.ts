@@ -136,6 +136,20 @@ export interface ChatCodeAppliedMessage {
   linesAdded: number;
   linesDeleted: number;
   explanation: string;
+  operation: 'create' | 'update' | 'delete';
+}
+
+export interface ChatToolActivityMessage {
+  type: 'chat:tool-activity';
+  title: string;
+  detail?: string;
+  filePath?: string;
+  operation?: string;
+}
+
+export interface ChatAgentSummaryMessage {
+  type: 'chat:agent-summary';
+  text: string;
 }
 
 /** Sent to update context files list in UI */
@@ -171,6 +185,8 @@ export type ExtensionToWebviewMessage =
   | ModelListMessage
   | ChatWorkingMessage
   | ChatCodeAppliedMessage
+  | ChatToolActivityMessage
+  | ChatAgentSummaryMessage
   | ContextListMessage
   | ContextAddResponseMessage
   | ContextFilePickerMessage
@@ -220,6 +236,13 @@ export interface ChatMessage {
     linesAdded: number;
     linesDeleted: number;
     explanation: string;
+    operation: 'create' | 'update' | 'delete';
+  };
+  toolActivity?: {
+    title: string;
+    detail?: string;
+    filePath?: string;
+    operation?: string;
   };
 }
 

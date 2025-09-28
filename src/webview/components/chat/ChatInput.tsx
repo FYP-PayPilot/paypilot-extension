@@ -97,6 +97,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     onServerSelection(newSelection);
   };
 
+  const getSuggestedPrompt = () => {
+    return mode === 'ask' 
+      ? 'Explain the code'
+      : 'Help me to integrate paypal services into my code';
+  };
+
+  const handleSuggestedPromptClick = () => {
+    if (!disabled) {
+      setInputValue(getSuggestedPrompt());
+    }
+  };
+
   return (
     <div className="chat-input">
       {/* Add Context button - moved above input */}
@@ -105,6 +117,18 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onClick={onAddContext}
           disabled={disabled}
         />
+      </div>
+
+      {/* Suggested Prompt Row */}
+      <div className="suggested-prompt-row">
+        <button
+          className="suggested-prompt-button"
+          onClick={handleSuggestedPromptClick}
+          disabled={disabled}
+          type="button"
+        >
+          {getSuggestedPrompt()}
+        </button>
       </div>
 
       {/* Input row */}

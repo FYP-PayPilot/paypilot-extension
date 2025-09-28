@@ -1,7 +1,7 @@
+import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getAvailableModels, getLanguageModel, streamLanguageModel } from "../language-model/languageModelService";
-import { FileModificationService } from "../file-modification/fileModificationService";
+import { getAvailableModels, getLanguageModel } from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
 import { ContextService } from "../context/contextService";
@@ -11,6 +11,16 @@ import { McpMessageService } from "../mcp/mcpMessageService";
 import { ModelMessageService } from "../language-model/modelMessageService";
 import { ChatHistoryService } from "./chatHistoryService";
 import { ChatMessage } from "../../types/chat";
+import { FileOperation } from "../../types/diff";
+import { resolveWorkspaceUri, relativeUriPath } from "../../utils/workspace";
+
+const WORKSPACE_CONTEXT_TOOL_NAME = "paypilot-workspaceContext";
+const CREATE_FILE_TOOL_NAME = "paypilot-createFile";
+const UPDATE_FILE_TOOL_NAME = "paypilot-updateFile";
+const DELETE_FILE_TOOL_NAME = "paypilot-deleteFile";
+const CREATE_DIRECTORY_TOOL_NAME = "paypilot-createDirectory";
+const READ_FILE_TOOL_NAME = "paypilot-readFile";
+const DELETE_DIRECTORY_TOOL_NAME = "paypilot-deleteDirectory";
 
 /**
  * Orchestrates chat requests, AI responses, diff tracking, context management, MCP configuration and chat management. 
@@ -19,7 +29,6 @@ import { ChatMessage } from "../../types/chat";
 export class MessageHandlerService {
   private currentAbortController: AbortController | null = null;
   private readonly diffService: DiffService;
-  private readonly fileModService: FileModificationService;
   private readonly statusBarService: StatusBarService;
   private readonly mcpService: McpService;
   private readonly contextService: ContextService;
@@ -28,11 +37,14 @@ export class MessageHandlerService {
   private readonly mcpMessageService: McpMessageService;
   private readonly modelMessageService: ModelMessageService;
   private readonly chatHistoryService: ChatHistoryService;
+  private agentChangeLog: string[] = [];
 
-  constructor(workspaceState: vscode.Memento) {
+  constructor(
+    workspaceState: vscode.Memento,
+    private readonly chatTools: vscode.LanguageModelChatTool[]
+  ) {
     this.statusBarService = new StatusBarService();
     this.diffService = new DiffService(this.statusBarService, workspaceState);
-    this.fileModService = new FileModificationService();
     this.mcpService = new McpService();
     this.contextService = new ContextService();
     this.promptService = new PromptService();
@@ -94,13 +106,13 @@ export class MessageHandlerService {
         await this.contextMessageService.respondToContextRequest(panel);
         break;
       case "context:add":
-        await this.contextMessageService.addFiles(message?.filePaths);
+        await this.contextMessageService.addFiles(message?.filePaths, panel);
         break;
       case "context:remove":
-        this.contextMessageService.removeFile(message?.filePath);
+        this.contextMessageService.removeFile(message?.filePath, panel);
         break;
       case "context:clear":
-        this.contextMessageService.clearAll();
+        this.contextMessageService.clearAll(panel);
         break;
       case "mcp:toggle":
         this.mcpMessageService.toggle(Boolean(message?.enabled));
@@ -204,10 +216,10 @@ export class MessageHandlerService {
   }
 
   /**
-   * Execute agent mode: stream the model response, parse file modifications, and apply edits.
+   * Execute agent mode: loop on tool-capable responses, invoke workspace tools, and track resulting edits.
    * @param selectedModel The language model to use for the request.
    * @param composed The fully composed prompt to send to the model.
-     * @param panel The webview panel to communicate back to.
+   * @param panel The webview panel to communicate back to.
    * @param abortController Controller to allow cancellation of the request.
    * @returns Promise that resolves when processing completes.
    */
@@ -223,37 +235,151 @@ export class MessageHandlerService {
       message: "Analyzing code and preparing changes...",
     });
 
+    const conversation: vscode.LanguageModelChatMessage[] = [
+      vscode.LanguageModelChatMessage.User(composed),
+    ];
+    this.agentChangeLog = [];
+    const agentPlan: string[] = [];
+    let planSent = false;
+
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+    const { signal } = abortController;
+    const listener = () => {
+      cancellationTokenSource.cancel();
+    };
+    signal.addEventListener("abort", listener, { once: true });
+
+    let aggregatedResponse = "";
+
     try {
-      const fullResponse = await streamLanguageModel(
-        selectedModel,
-        composed,
-        undefined,
-        abortController.signal
-      );
+      while (true) {
+        const response = await selectedModel.sendRequest(
+          conversation,
+          {
+            justification: "PayPilot agent request",
+            tools: this.chatTools,
+            toolMode: vscode.LanguageModelChatToolMode.Auto,
+          },
+          cancellationTokenSource.token
+        );
 
-      this.currentAbortController = null;
+        const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+        const textParts: vscode.LanguageModelTextPart[] = [];
 
-      // Parse multiple file modifications from AI response
-      const contextFiles = this.contextService.getContextFiles();
-      const fileModifications = this.fileModService.parseMultipleFileModifications(
-        fullResponse,
-        contextFiles
-      );
-      
-      console.log(`[PayPilot] Found ${fileModifications.length} file modifications`);
+        for await (const part of response.stream) {
+          if (cancellationTokenSource.token.isCancellationRequested) {
+            break;
+          }
 
-      if (fileModifications.length === 0) {
-        panel.postMessage({ type: "chat:done", text: fullResponse });
-      } else {
-        await this.fileModService.applyModifications(fileModifications, this.diffService, panel);
+          if (part instanceof vscode.LanguageModelTextPart) {
+            aggregatedResponse += part.value;
+            textParts.push(part);
+          } else if (part instanceof vscode.LanguageModelToolCallPart) {
+            toolCalls.push(part);
+          }
+        }
+
+        if (cancellationTokenSource.token.isCancellationRequested) {
+          throw new Error("Request cancelled");
+        }
+
+        if (toolCalls.length === 0) {
+          if (!planSent) {
+            const planSteps = agentPlan.length > 0 ? agentPlan : this.parsePlanLines(aggregatedResponse);
+            if (planSteps.length > 0) {
+              if (agentPlan.length === 0) {
+                agentPlan.push(...planSteps);
+              }
+              panel.postMessage({
+                type: 'chat:agent-plan',
+                title: 'Proposed plan',
+                steps: planSteps,
+              });
+              planSent = true;
+            }
+          }
+          if (!planSent && agentPlan.length > 0) {
+            panel.postMessage({
+              type: 'chat:agent-plan',
+              title: 'Proposed plan',
+              steps: agentPlan,
+            });
+            planSent = true;
+          }
+          const summary = this.formatAgentChangeSummary();
+          const baseText = aggregatedResponse.trim();
+          const finalText = summary
+            ? baseText
+              ? `${baseText}\n\n---\n${summary}`
+              : summary
+            : aggregatedResponse;
+          panel.postMessage({ type: 'chat:done', text: finalText });
+          if (summary) {
+            panel.postMessage({ type: 'chat:agent-summary', text: summary });
+          }
+          break;
+        }
+
+        if (textParts.length > 0) {
+          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+          if (!planSent) {
+            const planSteps = this.extractPlanSteps(textParts);
+            if (planSteps.length > 0) {
+              agentPlan.push(...planSteps);
+              panel.postMessage({
+                type: 'chat:agent-plan',
+                title: 'Proposed plan',
+                steps: planSteps,
+              });
+              planSent = true;
+            }
+          }
+        }
+
+        for (let index = 0; index < toolCalls.length; index += 1) {
+          const call = toolCalls[index];
+          try {
+            const resultPart = await this.invokeToolCall(call, panel);
+            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
+            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+            if (!planSent) {
+              const planSteps = this.extractPlanFromToolResult(resultPart);
+              if (planSteps.length > 0) {
+                agentPlan.push(...planSteps);
+                panel.postMessage({
+                  type: 'chat:agent-plan',
+                  title: 'Proposed plan',
+                  steps: planSteps,
+                });
+                planSent = true;
+              }
+            }
+            const hasMoreCalls = index < toolCalls.length - 1;
+            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
+          } catch (toolError) {
+            console.error("[PayPilot] Tool invocation failed", toolError);
+            panel.postMessage({
+              type: "chat:error",
+              error:
+                toolError instanceof Error
+                  ? toolError.message
+                  : String(toolError),
+            });
+            return;
+          }
+        }
       }
     } catch (agentError) {
-      this.currentAbortController = null;
       console.error("Error in agent mode:", agentError);
       panel.postMessage({
         type: "chat:error",
         error: agentError instanceof Error ? agentError.message : String(agentError),
       });
+    } finally {
+      this.agentChangeLog = [];
+      this.currentAbortController = null;
+      cancellationTokenSource.dispose();
+      signal.removeEventListener("abort", listener);
     }
   }
 
@@ -272,29 +398,555 @@ export class MessageHandlerService {
     abortController: AbortController
   ): Promise<void> {
     console.log("[PayPilot] Starting Ask Mode");
-    
-    let fullResponse = "";
-    
+
+    const conversation: vscode.LanguageModelChatMessage[] = [
+      vscode.LanguageModelChatMessage.User(composed),
+    ];
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+    const { signal } = abortController;
+    const listener = () => cancellationTokenSource.cancel();
+    signal.addEventListener("abort", listener, { once: true });
+
+    const askModeTools = this.getAskModeTools();
+    let aggregatedResponse = "";
+
     try {
-      const result = await streamLanguageModel(
-        selectedModel,
-        composed,
-        (token: string) => {
-          fullResponse += token;
-          panel.postMessage({ type: "chat:stream", token });
-        },
-        abortController.signal
-      );
-      
-      this.currentAbortController = null;
-      panel.postMessage({ type: "chat:done", text: result });
+      while (true) {
+        const requestOptions: vscode.LanguageModelChatRequestOptions = {
+          justification: "PayPilot ask request",
+        };
+        if (askModeTools.length > 0) {
+          requestOptions.tools = askModeTools;
+          requestOptions.toolMode = vscode.LanguageModelChatToolMode.Auto;
+        }
+
+        const response = await selectedModel.sendRequest(
+          conversation,
+          requestOptions,
+          cancellationTokenSource.token
+        );
+
+        const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+        const textParts: vscode.LanguageModelTextPart[] = [];
+
+        for await (const part of response.stream) {
+          if (cancellationTokenSource.token.isCancellationRequested) {
+            break;
+          }
+
+          if (part instanceof vscode.LanguageModelTextPart) {
+            aggregatedResponse += part.value;
+            textParts.push(part);
+            panel.postMessage({ type: "chat:stream", token: part.value });
+          } else if (part instanceof vscode.LanguageModelToolCallPart) {
+            toolCalls.push(part);
+          }
+        }
+
+        if (cancellationTokenSource.token.isCancellationRequested) {
+          throw new Error("Request cancelled");
+        }
+
+        if (textParts.length > 0) {
+          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+        }
+
+        if (toolCalls.length === 0) {
+          panel.postMessage({ type: "chat:done", text: aggregatedResponse });
+          break;
+        }
+
+        for (let index = 0; index < toolCalls.length; index += 1) {
+          const call = toolCalls[index];
+          try {
+            const resultPart = await this.invokeToolCall(call, panel);
+            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
+            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+            const hasMoreCalls = index < toolCalls.length - 1;
+            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
+          } catch (toolError) {
+            console.error("[PayPilot] Tool invocation failed in ask mode", toolError);
+            panel.postMessage({
+              type: "chat:error",
+              error:
+                toolError instanceof Error ? toolError.message : String(toolError),
+            });
+            return;
+          }
+        }
+      }
     } catch (chatError) {
+      if (!(chatError instanceof Error && chatError.message === "Request cancelled")) {
+        console.error("Error in chat mode:", chatError);
+        panel.postMessage({
+          type: "chat:error",
+          error: chatError instanceof Error ? chatError.message : String(chatError),
+        });
+      }
+    } finally {
       this.currentAbortController = null;
-      console.error("Error in chat mode:", chatError);
+      cancellationTokenSource.dispose();
+      signal.removeEventListener("abort", listener);
+    }
+  }
+
+  private injectWorkspaceRefreshIfNeeded(
+    _conversation: vscode.LanguageModelChatMessage[],
+    _call: vscode.LanguageModelToolCallPart,
+    _hasMoreCallsInBatch: boolean
+  ): void {
+    // Prompt guidance already covers follow-up workspace queries.
+  }
+
+  private recordAgentChange(entry: string | undefined): void {
+    if (!entry) {
+      return;
+    }
+    if (!this.agentChangeLog.includes(entry)) {
+      this.agentChangeLog.push(entry);
+    }
+  }
+
+  private formatAgentChangeSummary(): string {
+    if (this.agentChangeLog.length === 0) {
+      return "";
+    }
+    const lines = this.agentChangeLog.map((entry) => `• ${entry}`);
+    return [`Summary of applied changes:`, ...lines].join("\n");
+  }
+
+  private extractPlanSteps(textParts: vscode.LanguageModelTextPart[]): string[] {
+    const raw = textParts
+      .map((part) => part.value)
+      .join('')
+      .trim();
+    return this.parsePlanLines(raw);
+  }
+
+  private extractPlanFromToolResult(
+    resultPart: vscode.LanguageModelToolResultPart
+  ): string[] {
+    const raw = resultPart.content
+      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ''))
+      .join('')
+      .trim();
+    return this.parsePlanLines(raw);
+  }
+
+  private parsePlanLines(raw: string): string[] {
+    if (!raw) {
+      return [];
+    }
+
+    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const steps = lines
+      .filter((line) => /^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i.test(line))
+      .map((line) => line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, '').trim());
+
+    if (steps.length > 0) {
+      return steps;
+    }
+
+    if (lines.length > 1 && raw.toLowerCase().includes('plan')) {
+      return lines;
+    }
+
+    return [];
+  }
+
+  private getAskModeTools(): vscode.LanguageModelChatTool[] {
+    return this.chatTools.filter((tool) =>
+      tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
+      tool.name === READ_FILE_TOOL_NAME
+    );
+  }
+
+  private async invokeToolCall(
+    call: vscode.LanguageModelToolCallPart,
+    panel: vscode.Webview
+  ): Promise<vscode.LanguageModelToolResultPart> {
+    if (!call?.name) {
+      throw new Error("Invalid tool call: missing name");
+    }
+
+    const context = await this.prepareToolContext(call);
+
+    const result = await vscode.lm.invokeTool(call.name, {
+      toolInvocationToken: undefined,
+      input: call.input,
+    });
+
+    this.notifyToolActivity(call, panel, context);
+
+    if (context) {
+      await this.applyToolSideEffects(context, call, result, panel);
+    }
+
+    return new vscode.LanguageModelToolResultPart(call.callId, result.content);
+  }
+
+  private async prepareToolContext(
+    call: vscode.LanguageModelToolCallPart
+  ): Promise<
+    | {
+        uri: vscode.Uri;
+        operation: FileOperation;
+        originalContent: string;
+        isDirectory?: boolean;
+        directorySnapshot?: string;
+      }
+    | undefined
+  > {
+    switch (call.name) {
+      case CREATE_FILE_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const { content, exists } = await this.readFileSnapshot(target);
+        return {
+          uri: target,
+          operation: exists ? "update" : "create",
+          originalContent: content,
+        };
+      }
+      case UPDATE_FILE_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const { content } = await this.readFileSnapshot(target);
+        return {
+          uri: target,
+          operation: "update",
+          originalContent: content,
+        };
+      }
+      case DELETE_FILE_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const { content, exists } = await this.readFileSnapshot(target);
+        if (!exists) {
+          return undefined;
+        }
+        return {
+          uri: target,
+          operation: "delete",
+          originalContent: content,
+        };
+      }
+      case CREATE_DIRECTORY_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const snapshot = await this.captureDirectorySnapshot(target);
+        const exists = snapshot !== undefined;
+        return {
+          uri: target,
+          operation: exists ? "update" : "create",
+          originalContent: exists ? snapshot ?? "" : "",
+          isDirectory: true,
+          directorySnapshot: snapshot,
+        };
+      }
+      case DELETE_DIRECTORY_TOOL_NAME: {
+        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const snapshot = await this.captureDirectorySnapshot(target);
+        if (!snapshot) {
+          return undefined;
+        }
+        return {
+          uri: target,
+          operation: "delete",
+          originalContent: "",
+          isDirectory: true,
+          directorySnapshot: snapshot,
+        };
+      }
+      default:
+        return undefined;
+    }
+  }
+
+  private notifyToolActivity(
+    call: vscode.LanguageModelToolCallPart,
+    panel: vscode.Webview,
+    context?: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+    }
+  ): void {
+    const activity = this.describeToolActivity(call, context);
+    if (!activity) {
+      return;
+    }
+
+    panel.postMessage({
+      type: "chat:tool-activity",
+      ...activity,
+    });
+
+    if (activity.operation === "directory" || activity.operation === "directory-delete") {
+      const description = `${activity.operation === "directory" ? "Created" : "Deleted"} ${activity.detail ?? activity.title}`;
+      this.recordAgentChange(description);
+    }
+  }
+
+  private describeToolActivity(
+    call: vscode.LanguageModelToolCallPart,
+    context?: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+    }
+  ): { title: string; detail?: string; filePath?: string; operation?: string } | undefined {
+    try {
+      if (call.name === WORKSPACE_CONTEXT_TOOL_NAME) {
+        return { title: "Gathering workspace context…", operation: "context" };
+      }
+
+      const input = call.input as { path?: string } | undefined;
+      const candidatePath = input?.path;
+      const targetUri = context?.uri ?? (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
+
+      if (!targetUri) {
+        if (call.name === READ_FILE_TOOL_NAME) {
+          return { title: "Reading workspace data", operation: "read" };
+        }
+        return undefined;
+      }
+
+      const relativePath = relativeUriPath(targetUri);
+      const fileName = path.basename(targetUri.fsPath);
+
+      switch (call.name) {
+        case CREATE_FILE_TOOL_NAME: {
+          const verb = context?.operation === "create" ? "created" : "updated";
+          return {
+            title: `${fileName} ${verb}`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: context?.operation ?? "create",
+          };
+        }
+        case UPDATE_FILE_TOOL_NAME: {
+          return {
+            title: `${fileName} updated`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "update",
+          };
+        }
+        case DELETE_FILE_TOOL_NAME: {
+          return {
+            title: `${fileName} deleted`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "delete",
+          };
+        }
+        case CREATE_DIRECTORY_TOOL_NAME: {
+          return {
+            title: `${fileName || relativePath} directory created`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "directory",
+          };
+        }
+        case DELETE_DIRECTORY_TOOL_NAME: {
+          return {
+            title: `${fileName || relativePath} directory deleted`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "directory-delete",
+          };
+        }
+        case READ_FILE_TOOL_NAME: {
+          return {
+            title: `${fileName} read`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "read",
+          };
+        }
+        default:
+          return {
+            title: `Invoked ${call.name}`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+          };
+      }
+    } catch (error) {
+      console.warn("[PayPilot] Failed to describe tool activity", error);
+      return undefined;
+    }
+  }
+
+  private async applyToolSideEffects(
+    context: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
+    },
+    call: vscode.LanguageModelToolCallPart,
+    result: vscode.LanguageModelToolResult,
+    panel: vscode.Webview
+  ): Promise<void> {
+    if (context.isDirectory) {
+      await this.diffService.trackModifiedFiles([
+        {
+          filePath: context.uri.fsPath,
+          originalContent: context.originalContent,
+          operation: context.operation,
+          isDirectory: true,
+          directorySnapshot: context.directorySnapshot,
+        },
+      ]);
+
+      if (context.operation === 'delete') {
+        this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+      }
+
+      this.recordAgentChange(
+        `${this.describeOperation(context.operation, context.uri.fsPath)} (${relativeUriPath(context.uri)})`
+      );
+
       panel.postMessage({
-        type: "chat:error",
-        error: chatError instanceof Error ? chatError.message : String(chatError),
+        type: "chat:code-applied",
+        fileName: path.basename(context.uri.fsPath),
+        filePath: context.uri.fsPath,
+        linesAdded: 0,
+        linesDeleted: 0,
+        explanation: this.describeOperation(context.operation, context.uri.fsPath),
+        operation: context.operation,
       });
+      return;
+    }
+
+    let nextContent = "";
+
+    if (context.operation !== "delete") {
+      try {
+        nextContent = await this.readFileAfterTool(context.uri);
+      } catch (error) {
+        console.warn(
+          `[PayPilot] Failed to read modified file ${context.uri.fsPath}:`,
+          error
+        );
+      }
+    }
+
+    if (context.operation === "delete") {
+      this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+    }
+
+    const diffStats = this.diffService.calculateDiffStats(
+      context.originalContent.split("\n"),
+      context.operation === "delete" ? [] : nextContent.split("\n")
+    );
+
+    await this.diffService.trackModifiedFiles([
+      {
+        filePath: context.uri.fsPath,
+        originalContent: context.originalContent,
+        operation: context.operation,
+      },
+    ]);
+
+    panel.postMessage({
+      type: "chat:code-applied",
+      fileName: path.basename(context.uri.fsPath),
+      filePath: context.uri.fsPath,
+      linesAdded: diffStats.added,
+      linesDeleted: diffStats.deleted,
+      explanation: this.describeOperation(context.operation, context.uri.fsPath),
+      operation: context.operation,
+    });
+
+    const relative = relativeUriPath(context.uri);
+    this.recordAgentChange(
+      `${this.describeOperation(context.operation, context.uri.fsPath)} (${relative})`
+    );
+
+    // log tool result for transparency
+    const resultText = result.content
+      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ""))
+      .join("")
+      .trim();
+    if (resultText) {
+      console.log(`[PayPilot] Tool ${call.name} result: ${resultText}`);
+    }
+  }
+
+  private describeOperation(operation: FileOperation, filePath: string): string {
+    const fileName = path.basename(filePath);
+    switch (operation) {
+      case "create":
+        return `Created ${fileName}`;
+      case "delete":
+        return `Deleted ${fileName}`;
+      default:
+        return `Updated ${fileName}`;
+    }
+  }
+
+  private async readFileSnapshot(uri: vscode.Uri): Promise<{ content: string; exists: boolean }> {
+    try {
+      const buffer = await vscode.workspace.fs.readFile(uri);
+      return { content: Buffer.from(buffer).toString("utf8"), exists: true };
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+        return { content: "", exists: false };
+      }
+      throw error;
+    }
+  }
+
+  private async readFileAfterTool(uri: vscode.Uri): Promise<string> {
+    const buffer = await vscode.workspace.fs.readFile(uri);
+    return Buffer.from(buffer).toString("utf8");
+  }
+
+  private async captureDirectorySnapshot(uri: vscode.Uri): Promise<string | undefined> {
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (!(stat.type & vscode.FileType.Directory)) {
+        return undefined;
+      }
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+        return undefined;
+      }
+      throw error;
+    }
+
+    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = [];
+    await this.collectDirectoryEntries(uri, uri, entries);
+    return JSON.stringify(entries);
+  }
+
+  private async collectDirectoryEntries(
+    baseUri: vscode.Uri,
+    currentUri: vscode.Uri,
+    entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }>
+  ): Promise<void> {
+    const relative = path
+      .relative(baseUri.fsPath, currentUri.fsPath)
+      .replace(/\\/g, '/');
+    if (relative && relative !== '') {
+      entries.push({ path: relative, type: 'directory' });
+    }
+
+    const children = await vscode.workspace.fs.readDirectory(currentUri);
+    for (const [name, type] of children) {
+      const childUri = vscode.Uri.joinPath(currentUri, name);
+      if (type & vscode.FileType.Directory) {
+        await this.collectDirectoryEntries(baseUri, childUri, entries);
+      } else if (type & vscode.FileType.File) {
+        const content = await vscode.workspace.fs.readFile(childUri);
+        const relativeChild = path
+          .relative(baseUri.fsPath, childUri.fsPath)
+          .replace(/\\/g, '/');
+        entries.push({
+          path: relativeChild,
+          type: 'file',
+          content: Buffer.from(content).toString('base64'),
+        });
+      }
     }
   }
 

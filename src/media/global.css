@@ -584,6 +584,52 @@ html, body, #root {
   margin-bottom: var(--space-sm);
 }
 
+.suggested-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0;
+  padding: 0 var(--space-xs);
+}
+
+.suggested-prompt-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.suggested-prompt-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  font-size: 13px;
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.suggested-prompt-button:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.suggested-prompt-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.suggested-prompt-button:disabled:hover {
+  background: transparent;
+  border-color: var(--border);
+}
+
 .input-row {
   display: flex;
   gap: var(--space-sm);

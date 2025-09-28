@@ -108,6 +108,33 @@
           "workspace",
           "delete"
         ]
+      },
+      {
+        "name": "paypilot-deleteDirectory",
+        "displayName": "PayPilot Delete Directory",
+        "modelDescription": "Delete a directory from the workspace",
+        "tags": [
+          "workspace",
+          "delete"
+        ]
+      },
+      {
+        "name": "paypilot-createDirectory",
+        "displayName": "PayPilot Create Directory",
+        "modelDescription": "Create a directory within the workspace",
+        "tags": [
+          "workspace",
+          "write"
+        ]
+      },
+      {
+        "name": "paypilot-readFile",
+        "displayName": "PayPilot Read File",
+        "modelDescription": "Read the contents of a workspace file",
+        "tags": [
+          "workspace",
+          "read"
+        ]
       }
     ]
   },

@@ -1,3 +1,4 @@
+import * as path from 'path';
 import * as vscode from 'vscode';
 import {
   relativeUriPath,
@@ -35,6 +36,21 @@ interface DeleteFileInput {
   recursive?: boolean;
 }
 
+interface CreateDirectoryInput {
+  path: string;
+  recursive?: boolean;
+}
+
+interface ReadFileInput {
+  path: string;
+  maxBytes?: number;
+}
+
+interface DeleteDirectoryInput {
+  path: string;
+  recursive?: boolean;
+}
+
 interface PositionInput {
   line: number;
   character: number;
@@ -53,6 +69,9 @@ export function registerPaypilotTools(context: vscode.ExtensionContext): Paypilo
   tools.push(registerCreateFileTool(context));
   tools.push(registerUpdateFileTool(context));
   tools.push(registerDeleteFileTool(context));
+  tools.push(registerCreateDirectoryTool(context));
+  tools.push(registerReadFileTool(context));
+  tools.push(registerDeleteDirectoryTool(context));
 
   return { chatTools: tools };
 }
@@ -136,16 +155,16 @@ function registerCreateFileTool(context: vscode.ExtensionContext): vscode.Langua
   };
 
   const disposable = vscode.lm.registerTool<CreateFileInput>(tool.name, {
-    async invoke(options, _token) {
+    async invoke(options, token) {
       try {
         enforceWorkspace();
-        const uri = resolveWorkspaceUri(options.input.path);
+        const targetUri = await resolveFileCreationTarget(options.input.path, token);
         if (!options.input.overwrite) {
-          await assertNotExists(uri);
+          await assertNotExists(targetUri);
         }
         const payload = Buffer.from(options.input.contents ?? '', 'utf8');
-        await vscode.workspace.fs.writeFile(uri, payload);
-        return toToolResult(`Created ${relativeUriPath(uri)} (${payload.length} bytes).`);
+        await vscode.workspace.fs.writeFile(targetUri, payload);
+        return toToolResult(`Created ${relativeUriPath(targetUri)} (${payload.length} bytes).`);
       } catch (error) {
         return toToolError(error);
       }
@@ -190,7 +209,7 @@ function registerUpdateFileTool(context: vscode.ExtensionContext): vscode.Langua
     async invoke(options, token) {
       try {
         enforceWorkspace();
-        const uri = await resolveExistingEntry(options.input.path, token);
+        const uri = await resolveExistingEntry(options.input.path, token, 'file');
         const document = await vscode.workspace.openTextDocument(uri);
         const edit = new vscode.WorkspaceEdit();
         const targetRange = options.input.range
@@ -246,9 +265,161 @@ function registerDeleteFileTool(context: vscode.ExtensionContext): vscode.Langua
     async invoke(options, _token) {
       try {
         enforceWorkspace();
-        const uri = await resolveExistingEntry(options.input.path);
+        const uri = await resolveExistingEntry(options.input.path, undefined, 'any');
         await vscode.workspace.fs.delete(uri, { recursive: options.input.recursive ?? false, useTrash: false });
         return toToolResult(`Deleted ${relativeUriPath(uri)}.`);
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  });
+
+  context.subscriptions.push(disposable);
+  return tool;
+}
+
+function registerCreateDirectoryTool(context: vscode.ExtensionContext): vscode.LanguageModelChatTool {
+  const tool: vscode.LanguageModelChatTool = {
+    name: `${PARTICIPANT_ID}-createDirectory`,
+    description: 'Create a directory within the workspace.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['path'],
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Relative or absolute path for the directory to create.',
+        },
+        recursive: {
+          type: 'boolean',
+          description: 'Create parent folders as needed. Defaults to true.',
+        },
+      },
+    },
+  };
+
+  const disposable = vscode.lm.registerTool<CreateDirectoryInput>(tool.name, {
+    async invoke(options, token) {
+      try {
+        enforceWorkspace();
+        const target = await resolveDirectoryCreationTarget(options.input.path, token);
+        const recursive = options.input.recursive ?? true;
+        if (!recursive) {
+          try {
+            await vscode.workspace.fs.stat(target.baseUri);
+          } catch {
+            throw new Error(`Parent directory of ${relativeUriPath(target.uri)} does not exist.`);
+          }
+        }
+        await vscode.workspace.fs.createDirectory(target.uri);
+        if (!recursive) {
+          const stat = await vscode.workspace.fs.stat(target.uri);
+          if (!(stat.type & vscode.FileType.Directory)) {
+            throw new Error(`Failed to create directory at ${relativeUriPath(target.uri)}.`);
+          }
+        }
+        return toToolResult(`Created directory ${relativeUriPath(target.uri)}.`);
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  });
+
+  context.subscriptions.push(disposable);
+  return tool;
+}
+
+function registerDeleteDirectoryTool(context: vscode.ExtensionContext): vscode.LanguageModelChatTool {
+  const tool: vscode.LanguageModelChatTool = {
+    name: `${PARTICIPANT_ID}-deleteDirectory`,
+    description: 'Remove a directory from the workspace.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['path'],
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Relative or absolute path of the directory to remove.',
+        },
+        recursive: {
+          type: 'boolean',
+          description: 'Delete directory contents recursively (defaults to true).',
+        },
+      },
+    },
+  };
+
+  const disposable = vscode.lm.registerTool<DeleteDirectoryInput>(tool.name, {
+    async invoke(options, _token) {
+      try {
+        enforceWorkspace();
+        const uri = await resolveExistingEntry(options.input.path, undefined, 'directory');
+        const stat = await vscode.workspace.fs.stat(uri);
+        if (!(stat.type & vscode.FileType.Directory)) {
+          throw new Error(`"${relativeUriPath(uri)}" is not a directory.`);
+        }
+
+        await vscode.workspace.fs.delete(uri, {
+          recursive: options.input.recursive ?? true,
+          useTrash: false,
+        });
+
+        return toToolResult(`Deleted directory ${relativeUriPath(uri)}.`);
+      } catch (error) {
+        return toToolError(error);
+      }
+    },
+  });
+
+  context.subscriptions.push(disposable);
+  return tool;
+}
+
+function registerReadFileTool(context: vscode.ExtensionContext): vscode.LanguageModelChatTool {
+  const tool: vscode.LanguageModelChatTool = {
+    name: `${PARTICIPANT_ID}-readFile`,
+    description: 'Read the contents of a workspace file.',
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['path'],
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Relative or absolute path of the file to read.',
+        },
+        maxBytes: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 20000,
+          description: 'Optional limit on the number of UTF-8 bytes to return. Defaults to 6000.',
+        },
+      },
+    },
+  };
+
+  const disposable = vscode.lm.registerTool<ReadFileInput>(tool.name, {
+    async invoke(options, token) {
+      try {
+        enforceWorkspace();
+        const uri = await resolveExistingEntry(options.input.path, token, 'file');
+        const stat = await vscode.workspace.fs.stat(uri);
+        if (stat.type & vscode.FileType.Directory) {
+          throw new Error(`"${relativeUriPath(uri)}" is a directory.`);
+        }
+
+        const maxBytes = Math.min(Math.max(options.input.maxBytes ?? 6000, 1), 20000);
+        const contents = await vscode.workspace.fs.readFile(uri);
+        let text = Buffer.from(contents).toString('utf8');
+        let suffix = '';
+        if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+          text = Buffer.from(text, 'utf8').subarray(0, maxBytes).toString('utf8');
+          suffix = `\n\n(truncated to ${maxBytes} bytes)`;
+        }
+
+        return toToolResult(`### ${relativeUriPath(uri)}\n\n\`\`\`\n${text}\n\`\`\`${suffix}`);
       } catch (error) {
         return toToolError(error);
       }
@@ -401,44 +572,285 @@ function enforceWorkspace(): void {
 }
 
 
-function toGlobPattern(candidate: string): string {
-  const normalized = candidate.replace(/\\/g, '/').replace(/^\.\/+/, '');
-  if (hasGlobSyntax(normalized)) {
-    return normalized;
+async function resolveExistingEntry(
+  candidate: string,
+  token?: vscode.CancellationToken,
+  expectedKind: 'file' | 'directory' | 'any' = 'any'
+): Promise<vscode.Uri> {
+  const entries = await collectCandidateEntries(candidate, token);
+  const filtered = filterCandidatesByKind(entries, expectedKind);
+  if (filtered.length === 0) {
+    const hint = entries.length
+      ? entries.slice(0, 10).map((entry) => `- ${entry.relativePath}`).join('\n')
+      : undefined;
+    const kindLabel = expectedKind === 'any' ? 'entry' : expectedKind;
+    throw new Error(
+      `Could not find a ${kindLabel} matching "${candidate}" within the workspace.` +
+        (hint ? `\nDid you mean:\n${hint}` : '')
+    );
   }
-  if (normalized.startsWith('../') || normalized.startsWith('/')) {
+  return filtered[0].uri;
+}
+
+function normalizeCandidate(value: string): string {
+  return value
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\.\/+/, '')
+    .replace(/\/+$/, '')
+    .replace(/\/+/g, '/');
+}
+
+function toGlobPattern(candidate: string): string {
+  const normalized = normalizeCandidate(candidate);
+  if (!normalized) {
+    return '**/*';
+  }
+  if (hasGlobSyntax(normalized) || normalized.startsWith('../') || normalized.startsWith('/')) {
     return normalized;
   }
   return `**/${normalized}`;
 }
 
-async function resolveExistingEntry(candidate: string, token?: vscode.CancellationToken): Promise<vscode.Uri> {
-  const uri = resolveWorkspaceUri(candidate);
+interface CandidateEntry {
+  uri: vscode.Uri;
+  stat: vscode.FileStat;
+  relativePath: string;
+  score: number;
+}
 
-  try {
-    await vscode.workspace.fs.stat(uri);
-    return uri;
-  } catch (error) {
-    if (!(error instanceof vscode.FileSystemError) || error.code !== 'FileNotFound') {
-      throw error;
+async function collectCandidateEntries(candidate: string, token?: vscode.CancellationToken): Promise<CandidateEntry[]> {
+  const normalized = normalizeCandidate(candidate);
+  const patterns = buildSearchPatterns(normalized);
+  const seen = new Map<string, CandidateEntry>();
+
+  await addCandidateFromPath(normalized, seen);
+
+  for (const pattern of patterns) {
+    const matches = await vscode.workspace.findFiles(pattern, undefined, 25, token);
+    for (const match of matches) {
+      await addCandidate(match, seen);
     }
   }
 
-  const pattern = toGlobPattern(candidate);
-  const matches = await vscode.workspace.findFiles(pattern, undefined, 5, token);
-
-  if (matches.length === 0) {
-    throw new Error(`Could not find "${candidate}" within the workspace.`);
+  const entries = Array.from(seen.values());
+  const targetLower = normalized.toLowerCase();
+  for (const entry of entries) {
+    entry.score = computeCandidateScore(targetLower, entry);
   }
 
-  if (matches.length > 1) {
-    const hint = matches
-      .map(match => `- ${relativeUriPath(match)}`)
-      .join('\n');
-    throw new Error(`Multiple matches found for "${candidate}". Please provide a more specific path:\n${hint}`);
+  entries.sort((a, b) => b.score - a.score);
+  return entries;
+}
+
+async function addCandidateFromPath(candidate: string, seen: Map<string, CandidateEntry>): Promise<void> {
+  if (!candidate) {
+    return;
+  }
+  try {
+    const uri = resolveWorkspaceUri(candidate);
+    await addCandidate(uri, seen);
+  } catch {
+    // Ignore when explicit path cannot be resolved
+  }
+}
+
+async function addCandidate(uri: vscode.Uri, seen: Map<string, CandidateEntry>): Promise<void> {
+  const key = uri.toString();
+  if (seen.has(key)) {
+    return;
+  }
+  try {
+    const stat = await vscode.workspace.fs.stat(uri);
+    seen.set(key, {
+      uri,
+      stat,
+      relativePath: normalizeCandidate(relativeUriPath(uri)),
+      score: 0,
+    });
+  } catch {
+    // Skip entries that disappeared between search and stat
+  }
+}
+
+function filterCandidatesByKind(entries: CandidateEntry[], kind: 'file' | 'directory' | 'any'): CandidateEntry[] {
+  if (kind === 'any') {
+    return entries;
+  }
+  return entries.filter((entry) => {
+    const isDirectory = Boolean(entry.stat.type & vscode.FileType.Directory);
+    return kind === 'directory' ? isDirectory : !isDirectory;
+  });
+}
+
+function buildSearchPatterns(candidate: string): string[] {
+  if (!candidate) {
+    return ['**/*'];
   }
 
-  return matches[0];
+  const patterns = new Set<string>();
+  const variants = new Set<string>();
+
+  variants.add(candidate);
+  variants.add(candidate.replace(/\s+/g, '-'));
+  variants.add(candidate.replace(/\s+/g, '_'));
+  variants.add(candidate.replace(/-/g, ' '));
+  variants.add(candidate.replace(/_/g, ' '));
+
+  const sanitized = sanitizeForComparison(candidate);
+  if (sanitized && sanitized !== candidate) {
+    variants.add(sanitized);
+  }
+
+  for (const variant of variants) {
+    if (!variant) {
+      continue;
+    }
+    patterns.add(toGlobPattern(variant));
+  }
+
+  const basename = path.posix.basename(candidate);
+  if (basename) {
+    patterns.add(`**/${basename}`);
+    if (!basename.includes('*')) {
+      patterns.add(`**/*${basename}*`);
+    }
+  }
+
+  const segments = candidate.split('/');
+  if (segments.length > 1) {
+    const lastTwo = segments.slice(-2).join('/');
+    patterns.add(`**/${lastTwo}`);
+    const lastTwoSanitized = sanitizeForComparison(lastTwo);
+    if (lastTwoSanitized && lastTwoSanitized !== lastTwo) {
+      patterns.add(`**/${lastTwoSanitized}`);
+    }
+  }
+
+  return Array.from(patterns);
+}
+
+function computeCandidateScore(targetLower: string, entry: CandidateEntry): number {
+  const candidateLower = entry.relativePath.toLowerCase();
+  const targetBase = path.posix.basename(targetLower);
+  const candidateBase = path.posix.basename(candidateLower);
+  const sanitizedTarget = sanitizeForComparison(targetLower);
+  const sanitizedCandidate = sanitizeForComparison(candidateLower);
+  const sanitizedTargetBase = sanitizeForComparison(targetBase);
+  const sanitizedCandidateBase = sanitizeForComparison(candidateBase);
+
+  let score = 0;
+  if (candidateLower === targetLower) {
+    score += 1000;
+  }
+  if (candidateLower.endsWith(targetLower)) {
+    score += 600;
+  }
+  if (targetLower.endsWith(candidateLower)) {
+    score += 500;
+  }
+  if (candidateBase === targetBase) {
+    score += 400;
+  }
+  if (candidateBase.includes(targetBase) || targetBase.includes(candidateBase)) {
+    score += 250;
+  }
+  if (sanitizedCandidate === sanitizedTarget) {
+    score += 800;
+  }
+  if (sanitizedCandidateBase === sanitizedTargetBase) {
+    score += 500;
+  }
+
+  const distance = levenshteinDistance(candidateLower, targetLower);
+  const maxLen = Math.max(candidateLower.length, targetLower.length, 1);
+  score += Math.max(0, (maxLen - distance)) * 5;
+
+  const sanitizedDistance = levenshteinDistance(sanitizedCandidate, sanitizedTarget);
+  const sanitizedMaxLen = Math.max(sanitizedCandidate.length, sanitizedTarget.length, 1);
+  score += Math.max(0, (sanitizedMaxLen - sanitizedDistance)) * 3;
+
+  return score;
+}
+
+function levenshteinDistance(a: string, b: string): number {
+  const rows = a.length + 1;
+  const cols = b.length + 1;
+  const matrix = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
+
+  for (let i = 0; i < rows; i++) {
+    matrix[i][0] = i;
+  }
+  for (let j = 0; j < cols; j++) {
+    matrix[0][j] = j;
+  }
+
+  for (let i = 1; i < rows; i++) {
+    for (let j = 1; j < cols; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j] + 1,
+          matrix[i][j - 1] + 1,
+          matrix[i - 1][j - 1] + 1
+        );
+      }
+    }
+  }
+
+  return matrix[rows - 1][cols - 1];
+}
+
+function sanitizeForComparison(value: string): string {
+  return value.replace(/[-_\s]/g, '');
+}
+
+async function resolveFileCreationTarget(pathCandidate: string, token?: vscode.CancellationToken): Promise<vscode.Uri> {
+  const normalized = normalizeCandidate(pathCandidate);
+  if (!normalized) {
+    throw new Error('Provide a relative path for the new file.');
+  }
+  const segments = normalized.split('/');
+  const fileName = segments.pop();
+  if (!fileName) {
+    throw new Error('Provide a file name for the new file.');
+  }
+  const directoryCandidate = segments.join('/');
+  const baseDirectory = await resolveDirectoryForCreation(directoryCandidate, token);
+  return vscode.Uri.joinPath(baseDirectory, fileName);
+}
+
+async function resolveDirectoryCreationTarget(pathCandidate: string, token?: vscode.CancellationToken): Promise<{ uri: vscode.Uri; baseUri: vscode.Uri }> {
+  const normalized = normalizeCandidate(pathCandidate);
+  if (!normalized) {
+    throw new Error('Provide a directory path to create.');
+  }
+
+  const segments = normalized.split('/');
+  const directoryName = segments.pop();
+  if (!directoryName) {
+    throw new Error('Provide a directory name to create.');
+  }
+
+  const parentCandidate = segments.join('/');
+  const baseDirectory = await resolveDirectoryForCreation(parentCandidate, token);
+  const targetUri = vscode.Uri.joinPath(baseDirectory, directoryName);
+  return { uri: targetUri, baseUri: baseDirectory };
+}
+
+async function resolveDirectoryForCreation(pathCandidate: string, token?: vscode.CancellationToken): Promise<vscode.Uri> {
+  const normalized = normalizeCandidate(pathCandidate);
+  if (!normalized) {
+    const [root] = requireWorkspaceFolders(WORKSPACE_ERROR);
+    return root.uri;
+  }
+  const entries = await collectCandidateEntries(normalized, token);
+  const directories = filterCandidatesByKind(entries, 'directory');
+  if (directories.length > 0) {
+    return directories[0].uri;
+  }
+  return resolveWorkspaceUri(normalized);
 }
 
 function hasGlobSyntax(value: string): boolean {

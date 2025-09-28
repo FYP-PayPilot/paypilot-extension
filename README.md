@@ -78,13 +78,12 @@ Each folder under `src/features` represents a domain module that owns its logic 
 
 ### Ask Mode (analysis only)
 1. Webview sends `{ type: 'chat:ask', mode: 'ask', ... }` through `VSCodeContext`.
-2. `MessageHandlerService` composes the prompt via `PromptService` and streams the answer with `languageModelService.streamLanguageModel`.
-3. Streaming tokens are forwarded to the webview as `chat:stream`; the final response arrives as `chat:response`.
-4. No file modifications occur, so the Diff and File-Mod domains remain idle.
+2. `MessageHandlerService` composes the prompt via `PromptService`, sends the request with tool support, and forwards streamed tokens to the webview as `chat:stream`.
+3. The final response arrives as `chat:response`. No file modifications occur, so the Diff domain remains idle.
 
 ### Agent Mode (code edits)
 1. Webview includes `mode: 'agent'` plus optional context file hints.
-2. `MessageHandlerService` gathers editor context (`ContextService`), streams the language model response, and responds to tool calls (`paypilot-…` tools) by invoking `vscode.lm.invokeTool`.
+2. `MessageHandlerService` gathers editor context (`ContextService`), sends tool-enabled chat requests, and responds to tool calls (`paypilot-…`) by invoking `vscode.lm.invokeTool`.
 3. Tool executions perform the requested filesystem changes and emit `chat:code-applied` updates back to the webview.
 4. `DiffService.trackModifiedFiles` snapshots originals and refreshes status-bar controls via `StatusBarService`.
 5. Accept/Reject/Keep/Undo commands (triggered via status bar or command palette) call `diffService` methods to manage the tracked files.

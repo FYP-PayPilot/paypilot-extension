@@ -1,7 +1,10 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getAvailableModels, getLanguageModel } from "../language-model/languageModelService";
+import {
+  getAvailableModels,
+  getLanguageModel,
+} from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
 import { ContextService } from "../context/contextService";
@@ -20,10 +23,10 @@ const UPDATE_FILE_TOOL_NAME = "paypilot-updateFile";
 const DELETE_FILE_TOOL_NAME = "paypilot-deleteFile";
 const CREATE_DIRECTORY_TOOL_NAME = "paypilot-createDirectory";
 const READ_FILE_TOOL_NAME = "paypilot-readFile";
-const DELETE_DIRECTORY_TOOL_NAME = "paypilot-deleteDirectory";
+const MOVE_FILE_TOOL_NAME = "paypilot-moveFile";
 
 /**
- * Orchestrates chat requests, AI responses, diff tracking, context management, MCP configuration and chat management. 
+ * Orchestrates chat requests, AI responses, diff tracking, context management, MCP configuration and chat management.
  * Acts as the bridge between the webview and backend services.
  */
 export class MessageHandlerService {
@@ -134,21 +137,24 @@ export class MessageHandlerService {
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when processing completes.
    */
-  private async handleChatAsk(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
+  private async handleChatAsk(
+    msg: ChatMessage | undefined,
+    panel: vscode.Webview
+  ): Promise<void> {
     try {
-      
       // Get the specific language model to use
       let selectedModel: vscode.LanguageModelChat | null = null;
       if (msg?.model) {
         selectedModel = await getLanguageModel(msg.model);
       }
-      
+
       if (!selectedModel) {
         const availableModels = await getAvailableModels();
         if (availableModels.length === 0) {
           panel.postMessage({
             type: "chat:error",
-            error: "No language models available. Please enable Copilot or sign in to VS Code.",
+            error:
+              "No language models available. Please enable Copilot or sign in to VS Code.",
           });
           return;
         }
@@ -156,7 +162,8 @@ export class MessageHandlerService {
         if (!selectedModel) {
           panel.postMessage({
             type: "chat:error",
-            error: "Failed to load the fallback language model. Please check your model configuration or sign in to VS Code.",
+            error:
+              "Failed to load the fallback language model. Please check your model configuration or sign in to VS Code.",
           });
           return;
         }
@@ -164,17 +171,21 @@ export class MessageHandlerService {
 
       if (!selectedModel) {
         panel.postMessage({
-          type: "chat:error", 
+          type: "chat:error",
           error: "Failed to load the selected language model.",
         });
         return;
       }
 
       const cfg = vscode.workspace.getConfiguration("paypilot");
-      const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
+      const maxContextChars = Math.max(
+        0,
+        Number(cfg.get("maxContextChars")) || 0
+      );
 
       // Extract editor context for AI prompt
-      const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
+      const editorContext =
+        this.contextService.getActiveEditorContext(maxContextChars);
 
       // Build context files content
       let contextFilesContent = "";
@@ -201,16 +212,27 @@ export class MessageHandlerService {
       this.currentAbortController = abortController;
 
       if (mode === "agent") {
-        await this.handleAgentMode(selectedModel, composed, panel, abortController);
+        await this.handleAgentMode(
+          selectedModel,
+          composed,
+          panel,
+          abortController
+        );
       } else {
-        await this.handleAskMode(selectedModel, composed, panel, abortController);
+        await this.handleAskMode(
+          selectedModel,
+          composed,
+          panel,
+          abortController
+        );
       }
     } catch (error) {
       this.currentAbortController = null;
       console.error("Error in chat:ask handler:", error);
       panel.postMessage({
         type: "chat:error",
-        error: error instanceof Error ? error.message : "An unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "An unknown error occurred",
       });
     }
   }
@@ -285,14 +307,17 @@ export class MessageHandlerService {
 
         if (toolCalls.length === 0) {
           if (!planSent) {
-            const planSteps = agentPlan.length > 0 ? agentPlan : this.parsePlanLines(aggregatedResponse);
+            const planSteps =
+              agentPlan.length > 0
+                ? agentPlan
+                : this.parsePlanLines(aggregatedResponse);
             if (planSteps.length > 0) {
               if (agentPlan.length === 0) {
                 agentPlan.push(...planSteps);
               }
               panel.postMessage({
-                type: 'chat:agent-plan',
-                title: 'Proposed plan',
+                type: "chat:agent-plan",
+                title: "Proposed plan",
                 steps: planSteps,
               });
               planSent = true;
@@ -300,8 +325,8 @@ export class MessageHandlerService {
           }
           if (!planSent && agentPlan.length > 0) {
             panel.postMessage({
-              type: 'chat:agent-plan',
-              title: 'Proposed plan',
+              type: "chat:agent-plan",
+              title: "Proposed plan",
               steps: agentPlan,
             });
             planSent = true;
@@ -313,22 +338,24 @@ export class MessageHandlerService {
               ? `${baseText}\n\n---\n${summary}`
               : summary
             : aggregatedResponse;
-          panel.postMessage({ type: 'chat:done', text: finalText });
+          panel.postMessage({ type: "chat:done", text: finalText });
           if (summary) {
-            panel.postMessage({ type: 'chat:agent-summary', text: summary });
+            panel.postMessage({ type: "chat:agent-summary", text: summary });
           }
           break;
         }
 
         if (textParts.length > 0) {
-          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+          conversation.push(
+            vscode.LanguageModelChatMessage.Assistant(textParts)
+          );
           if (!planSent) {
             const planSteps = this.extractPlanSteps(textParts);
             if (planSteps.length > 0) {
               agentPlan.push(...planSteps);
               panel.postMessage({
-                type: 'chat:agent-plan',
-                title: 'Proposed plan',
+                type: "chat:agent-plan",
+                title: "Proposed plan",
                 steps: planSteps,
               });
               planSent = true;
@@ -340,22 +367,30 @@ export class MessageHandlerService {
           const call = toolCalls[index];
           try {
             const resultPart = await this.invokeToolCall(call, panel);
-            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
-            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+            conversation.push(
+              vscode.LanguageModelChatMessage.Assistant([call])
+            );
+            conversation.push(
+              vscode.LanguageModelChatMessage.User([resultPart])
+            );
             if (!planSent) {
               const planSteps = this.extractPlanFromToolResult(resultPart);
               if (planSteps.length > 0) {
                 agentPlan.push(...planSteps);
                 panel.postMessage({
-                  type: 'chat:agent-plan',
-                  title: 'Proposed plan',
+                  type: "chat:agent-plan",
+                  title: "Proposed plan",
                   steps: planSteps,
                 });
                 planSent = true;
               }
             }
             const hasMoreCalls = index < toolCalls.length - 1;
-            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
+            this.injectWorkspaceRefreshIfNeeded(
+              conversation,
+              call,
+              hasMoreCalls
+            );
           } catch (toolError) {
             console.error("[PayPilot] Tool invocation failed", toolError);
             panel.postMessage({
@@ -373,7 +408,8 @@ export class MessageHandlerService {
       console.error("Error in agent mode:", agentError);
       panel.postMessage({
         type: "chat:error",
-        error: agentError instanceof Error ? agentError.message : String(agentError),
+        error:
+          agentError instanceof Error ? agentError.message : String(agentError),
       });
     } finally {
       this.agentChangeLog = [];
@@ -448,7 +484,9 @@ export class MessageHandlerService {
         }
 
         if (textParts.length > 0) {
-          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+          conversation.push(
+            vscode.LanguageModelChatMessage.Assistant(textParts)
+          );
         }
 
         if (toolCalls.length === 0) {
@@ -460,27 +498,46 @@ export class MessageHandlerService {
           const call = toolCalls[index];
           try {
             const resultPart = await this.invokeToolCall(call, panel);
-            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
-            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+            conversation.push(
+              vscode.LanguageModelChatMessage.Assistant([call])
+            );
+            conversation.push(
+              vscode.LanguageModelChatMessage.User([resultPart])
+            );
             const hasMoreCalls = index < toolCalls.length - 1;
-            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
+            this.injectWorkspaceRefreshIfNeeded(
+              conversation,
+              call,
+              hasMoreCalls
+            );
           } catch (toolError) {
-            console.error("[PayPilot] Tool invocation failed in ask mode", toolError);
+            console.error(
+              "[PayPilot] Tool invocation failed in ask mode",
+              toolError
+            );
             panel.postMessage({
               type: "chat:error",
               error:
-                toolError instanceof Error ? toolError.message : String(toolError),
+                toolError instanceof Error
+                  ? toolError.message
+                  : String(toolError),
             });
             return;
           }
         }
       }
     } catch (chatError) {
-      if (!(chatError instanceof Error && chatError.message === "Request cancelled")) {
+      if (
+        !(
+          chatError instanceof Error &&
+          chatError.message === "Request cancelled"
+        )
+      ) {
         console.error("Error in chat mode:", chatError);
         panel.postMessage({
           type: "chat:error",
-          error: chatError instanceof Error ? chatError.message : String(chatError),
+          error:
+            chatError instanceof Error ? chatError.message : String(chatError),
         });
       }
     } finally {
@@ -515,10 +572,12 @@ export class MessageHandlerService {
     return [`Summary of applied changes:`, ...lines].join("\n");
   }
 
-  private extractPlanSteps(textParts: vscode.LanguageModelTextPart[]): string[] {
+  private extractPlanSteps(
+    textParts: vscode.LanguageModelTextPart[]
+  ): string[] {
     const raw = textParts
       .map((part) => part.value)
-      .join('')
+      .join("")
       .trim();
     return this.parsePlanLines(raw);
   }
@@ -527,8 +586,10 @@ export class MessageHandlerService {
     resultPart: vscode.LanguageModelToolResultPart
   ): string[] {
     const raw = resultPart.content
-      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ''))
-      .join('')
+      .map((part) =>
+        part instanceof vscode.LanguageModelTextPart ? part.value : ""
+      )
+      .join("")
       .trim();
     return this.parsePlanLines(raw);
   }
@@ -538,16 +599,21 @@ export class MessageHandlerService {
       return [];
     }
 
-    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     const steps = lines
       .filter((line) => /^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i.test(line))
-      .map((line) => line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, '').trim());
+      .map((line) =>
+        line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, "").trim()
+      );
 
     if (steps.length > 0) {
       return steps;
     }
 
-    if (lines.length > 1 && raw.toLowerCase().includes('plan')) {
+    if (lines.length > 1 && raw.toLowerCase().includes("plan")) {
       return lines;
     }
 
@@ -555,9 +621,10 @@ export class MessageHandlerService {
   }
 
   private getAskModeTools(): vscode.LanguageModelChatTool[] {
-    return this.chatTools.filter((tool) =>
-      tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
-      tool.name === READ_FILE_TOOL_NAME
+    return this.chatTools.filter(
+      (tool) =>
+        tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
+        tool.name === READ_FILE_TOOL_NAME
     );
   }
 
@@ -599,7 +666,9 @@ export class MessageHandlerService {
   > {
     switch (call.name) {
       case CREATE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const { content, exists } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -608,7 +677,9 @@ export class MessageHandlerService {
         };
       }
       case UPDATE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const { content } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -617,7 +688,9 @@ export class MessageHandlerService {
         };
       }
       case DELETE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const { content, exists } = await this.readFileSnapshot(target);
         if (!exists) {
           return undefined;
@@ -629,7 +702,9 @@ export class MessageHandlerService {
         };
       }
       case CREATE_DIRECTORY_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const snapshot = await this.captureDirectorySnapshot(target);
         const exists = snapshot !== undefined;
         return {
@@ -640,19 +715,23 @@ export class MessageHandlerService {
           directorySnapshot: snapshot,
         };
       }
-      case DELETE_DIRECTORY_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
-        const snapshot = await this.captureDirectorySnapshot(target);
-        if (!snapshot) {
+      case MOVE_FILE_TOOL_NAME: {
+        const input = call.input as { sourcePath: string; targetPath: string };
+        const sourceUri = resolveWorkspaceUri(input.sourcePath);
+        const targetUri = resolveWorkspaceUri(input.targetPath);
+
+        // Capture the original content of the source file
+        try {
+          const content = await vscode.workspace.fs.readFile(sourceUri);
+          return {
+            uri: targetUri,
+            operation: "create",
+            originalContent: Buffer.from(content).toString("utf8"),
+            isDirectory: false,
+          };
+        } catch {
           return undefined;
         }
-        return {
-          uri: target,
-          operation: "delete",
-          originalContent: "",
-          isDirectory: true,
-          directorySnapshot: snapshot,
-        };
       }
       default:
         return undefined;
@@ -678,8 +757,13 @@ export class MessageHandlerService {
       ...activity,
     });
 
-    if (activity.operation === "directory" || activity.operation === "directory-delete") {
-      const description = `${activity.operation === "directory" ? "Created" : "Deleted"} ${activity.detail ?? activity.title}`;
+    if (
+      activity.operation === "directory" ||
+      activity.operation === "directory-delete"
+    ) {
+      const description = `${
+        activity.operation === "directory" ? "Created" : "Deleted"
+      } ${activity.detail ?? activity.title}`;
       this.recordAgentChange(description);
     }
   }
@@ -691,7 +775,9 @@ export class MessageHandlerService {
       operation: FileOperation;
       originalContent: string;
     }
-  ): { title: string; detail?: string; filePath?: string; operation?: string } | undefined {
+  ):
+    | { title: string; detail?: string; filePath?: string; operation?: string }
+    | undefined {
     try {
       if (call.name === WORKSPACE_CONTEXT_TOOL_NAME) {
         return { title: "Gathering workspace context…", operation: "context" };
@@ -699,7 +785,9 @@ export class MessageHandlerService {
 
       const input = call.input as { path?: string } | undefined;
       const candidatePath = input?.path;
-      const targetUri = context?.uri ?? (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
+      const targetUri =
+        context?.uri ??
+        (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
 
       if (!targetUri) {
         if (call.name === READ_FILE_TOOL_NAME) {
@@ -745,12 +833,12 @@ export class MessageHandlerService {
             operation: "directory",
           };
         }
-        case DELETE_DIRECTORY_TOOL_NAME: {
+        case MOVE_FILE_TOOL_NAME: {
           return {
-            title: `${fileName || relativePath} directory deleted`,
-            detail: relativePath,
+            title: `${fileName} moved`,
+            detail: `${fileName} → ${relativePath}`,
             filePath: targetUri.fsPath,
-            operation: "directory-delete",
+            operation: "move",
           };
         }
         case READ_FILE_TOOL_NAME: {
@@ -797,12 +885,18 @@ export class MessageHandlerService {
         },
       ]);
 
-      if (context.operation === 'delete') {
-        this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+      if (context.operation === "delete") {
+        this.contextMessageService.handleExternalRemoval(
+          context.uri.fsPath,
+          panel
+        );
       }
 
       this.recordAgentChange(
-        `${this.describeOperation(context.operation, context.uri.fsPath)} (${relativeUriPath(context.uri)})`
+        `${this.describeOperation(
+          context.operation,
+          context.uri.fsPath
+        )} (${relativeUriPath(context.uri)})`
       );
 
       panel.postMessage({
@@ -811,7 +905,10 @@ export class MessageHandlerService {
         filePath: context.uri.fsPath,
         linesAdded: 0,
         linesDeleted: 0,
-        explanation: this.describeOperation(context.operation, context.uri.fsPath),
+        explanation: this.describeOperation(
+          context.operation,
+          context.uri.fsPath
+        ),
         operation: context.operation,
       });
       return;
@@ -831,7 +928,10 @@ export class MessageHandlerService {
     }
 
     if (context.operation === "delete") {
-      this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+      this.contextMessageService.handleExternalRemoval(
+        context.uri.fsPath,
+        panel
+      );
     }
 
     const diffStats = this.diffService.calculateDiffStats(
@@ -853,18 +953,26 @@ export class MessageHandlerService {
       filePath: context.uri.fsPath,
       linesAdded: diffStats.added,
       linesDeleted: diffStats.deleted,
-      explanation: this.describeOperation(context.operation, context.uri.fsPath),
+      explanation: this.describeOperation(
+        context.operation,
+        context.uri.fsPath
+      ),
       operation: context.operation,
     });
 
     const relative = relativeUriPath(context.uri);
     this.recordAgentChange(
-      `${this.describeOperation(context.operation, context.uri.fsPath)} (${relative})`
+      `${this.describeOperation(
+        context.operation,
+        context.uri.fsPath
+      )} (${relative})`
     );
 
     // log tool result for transparency
     const resultText = result.content
-      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ""))
+      .map((part) =>
+        part instanceof vscode.LanguageModelTextPart ? part.value : ""
+      )
       .join("")
       .trim();
     if (resultText) {
@@ -872,7 +980,10 @@ export class MessageHandlerService {
     }
   }
 
-  private describeOperation(operation: FileOperation, filePath: string): string {
+  private describeOperation(
+    operation: FileOperation,
+    filePath: string
+  ): string {
     const fileName = path.basename(filePath);
     switch (operation) {
       case "create":
@@ -884,12 +995,17 @@ export class MessageHandlerService {
     }
   }
 
-  private async readFileSnapshot(uri: vscode.Uri): Promise<{ content: string; exists: boolean }> {
+  private async readFileSnapshot(
+    uri: vscode.Uri
+  ): Promise<{ content: string; exists: boolean }> {
     try {
       const buffer = await vscode.workspace.fs.readFile(uri);
       return { content: Buffer.from(buffer).toString("utf8"), exists: true };
     } catch (error) {
-      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+      if (
+        error instanceof vscode.FileSystemError &&
+        error.code === "FileNotFound"
+      ) {
         return { content: "", exists: false };
       }
       throw error;
@@ -901,20 +1017,29 @@ export class MessageHandlerService {
     return Buffer.from(buffer).toString("utf8");
   }
 
-  private async captureDirectorySnapshot(uri: vscode.Uri): Promise<string | undefined> {
+  private async captureDirectorySnapshot(
+    uri: vscode.Uri
+  ): Promise<string | undefined> {
     try {
       const stat = await vscode.workspace.fs.stat(uri);
       if (!(stat.type & vscode.FileType.Directory)) {
         return undefined;
       }
     } catch (error) {
-      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+      if (
+        error instanceof vscode.FileSystemError &&
+        error.code === "FileNotFound"
+      ) {
         return undefined;
       }
       throw error;
     }
 
-    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = [];
+    const entries: Array<{
+      path: string;
+      type: "file" | "directory";
+      content?: string;
+    }> = [];
     await this.collectDirectoryEntries(uri, uri, entries);
     return JSON.stringify(entries);
   }
@@ -922,13 +1047,17 @@ export class MessageHandlerService {
   private async collectDirectoryEntries(
     baseUri: vscode.Uri,
     currentUri: vscode.Uri,
-    entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }>
+    entries: Array<{
+      path: string;
+      type: "file" | "directory";
+      content?: string;
+    }>
   ): Promise<void> {
     const relative = path
       .relative(baseUri.fsPath, currentUri.fsPath)
-      .replace(/\\/g, '/');
-    if (relative && relative !== '') {
-      entries.push({ path: relative, type: 'directory' });
+      .replace(/\\/g, "/");
+    if (relative && relative !== "") {
+      entries.push({ path: relative, type: "directory" });
     }
 
     const children = await vscode.workspace.fs.readDirectory(currentUri);
@@ -940,11 +1069,11 @@ export class MessageHandlerService {
         const content = await vscode.workspace.fs.readFile(childUri);
         const relativeChild = path
           .relative(baseUri.fsPath, childUri.fsPath)
-          .replace(/\\/g, '/');
+          .replace(/\\/g, "/");
         entries.push({
           path: relativeChild,
-          type: 'file',
-          content: Buffer.from(content).toString('base64'),
+          type: "file",
+          content: Buffer.from(content).toString("base64"),
         });
       }
     }
@@ -969,7 +1098,10 @@ export class MessageHandlerService {
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when the operation completes.
    */
-  private async handleNewChat(message: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
+  private async handleNewChat(
+    message: ChatMessage | undefined,
+    panel: vscode.Webview
+  ): Promise<void> {
     const session = this.chatHistoryService.createSession(message?.title);
     panel.postMessage({
       type: "chat:new-response",
@@ -1006,7 +1138,9 @@ export class MessageHandlerService {
       await vscode.window.showTextDocument(uri);
     } catch (error) {
       console.error("Error opening file:", error);
-      vscode.window.showErrorMessage(`Failed to open file: ${message?.filePath ?? "unknown"}`);
+      vscode.window.showErrorMessage(
+        `Failed to open file: ${message?.filePath ?? "unknown"}`
+      );
     }
   }
 
@@ -1018,7 +1152,7 @@ export class MessageHandlerService {
    */
   setChatPanelVisibility(visible: boolean): void {
     this.statusBarService.setChatPanelVisibility(visible);
-    
+
     // show diff buttons only when the panel is visible and there are tracked changes
     if (visible && this.diffService.hasChanges()) {
       const totalFiles = this.diffService.getActiveDiffFiles().length;
@@ -1055,12 +1189,12 @@ export class MessageHandlerService {
     this.diffService.dispose(); // Now handles both regular and sequential cleanup
     this.contextMessageService.clearAll();
     this.mcpService.reset();
-    
+
     if (this.currentAbortController) {
       this.currentAbortController.abort();
       this.currentAbortController = null;
     }
-    
+
     console.log("[PayPilot] MessageHandlerService disposed");
   }
 }

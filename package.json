@@ -76,28 +76,41 @@
       {
         "name": "paypilot-workspaceContext",
         "displayName": "PayPilot Workspace Context",
-        "modelDescription": "Fetch context about the current workspace",
+        "modelDescription": "Discover files and analyze workspace structure using glob patterns - perfect for iterative file discovery",
         "tags": [
           "workspace",
-          "read"
+          "discover",
+          "analyze"
         ]
       },
       {
         "name": "paypilot-createFile",
         "displayName": "PayPilot Create File",
-        "modelDescription": "Create a new file in the workspace",
+        "modelDescription": "Create a new file in the workspace with specified contents",
         "tags": [
           "workspace",
+          "create",
           "write"
+        ]
+      },
+      {
+        "name": "paypilot-readFile",
+        "displayName": "PayPilot Read File",
+        "modelDescription": "Read the complete contents of a workspace file",
+        "tags": [
+          "workspace",
+          "read",
+          "content"
         ]
       },
       {
         "name": "paypilot-updateFile",
         "displayName": "PayPilot Update File",
-        "modelDescription": "Update an existing file in the workspace",
+        "modelDescription": "Update/replace the contents of an existing workspace file",
         "tags": [
           "workspace",
-          "edit"
+          "update",
+          "modify"
         ]
       },
       {
@@ -106,7 +119,18 @@
         "modelDescription": "Delete a file from the workspace",
         "tags": [
           "workspace",
-          "delete"
+          "delete",
+          "remove"
+        ]
+      },
+      {
+        "name": "paypilot-createDirectory",
+        "displayName": "PayPilot Create Directory",
+        "modelDescription": "Create a directory in the workspace",
+        "tags": [
+          "workspace",
+          "create",
+          "directory"
         ]
       },
       {
@@ -115,25 +139,8 @@
         "modelDescription": "Delete a directory from the workspace",
         "tags": [
           "workspace",
-          "delete"
-        ]
-      },
-      {
-        "name": "paypilot-createDirectory",
-        "displayName": "PayPilot Create Directory",
-        "modelDescription": "Create a directory within the workspace",
-        "tags": [
-          "workspace",
-          "write"
-        ]
-      },
-      {
-        "name": "paypilot-readFile",
-        "displayName": "PayPilot Read File",
-        "modelDescription": "Read the contents of a workspace file",
-        "tags": [
-          "workspace",
-          "read"
+          "delete",
+          "directory"
         ]
       }
     ]

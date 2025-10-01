@@ -75,7 +75,7 @@ export const useChat = () => {
       console.warn('Failed to load chat history:', error);
       return [];
     }
-
+  }, []);
   const findActiveAssistantMessageIndex = useCallback((messages: ChatMessage[]) => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const entry = messages[index];
@@ -388,8 +388,29 @@ export const useChat = () => {
           });
           break;
 
-        case 'chat:tool-activity':
-          setState(prev => {
+        case "chat:multi-file-edit-summary":
+          setState((prev) => {
+            const messages = [...prev.messages];
+            messages.push({
+              id: generateMessageId(),
+              content: "Multi-file edit summary",
+              role: "assistant",
+              timestamp: Date.now(),
+              multiFileEditSummary: {
+                changes: message.changes || [],
+                totalLinesAdded: message.totalLinesAdded || 0,
+                totalLinesDeleted: message.totalLinesDeleted || 0,
+              },
+            });
+            return {
+              ...prev,
+              messages,
+            };
+          });
+          break;
+
+        case "chat:tool-activity":
+          setState((prev) => {
             const messages = [...prev.messages];
             const activityMessage: ChatMessage = {
               id: generateMessageId(),

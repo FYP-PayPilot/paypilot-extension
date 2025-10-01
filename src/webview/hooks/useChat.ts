@@ -24,6 +24,9 @@ export const useChat = () => {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [selectedServers, setSelectedServers] = useState<string[]>([]);
 
+  // Chat history modal state
+  const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
+
   // Generate unique message IDs
   const generateMessageId = useCallback(() => {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -280,29 +283,43 @@ export const useChat = () => {
   // Handle chat history
   const handleChatHistory = useCallback(() => {
     console.log('=== HISTORY BUTTON CLICKED ===');
-    const history = getChatHistory();
-    console.log('Chat History:', history);
-    console.log('History length:', history.length);
+    setShowHistoryModal(true);
+  }, []);
+
+  // Load a chat from history
+  const handleLoadChat = useCallback((chat: any) => {
+    console.log('=== LOADING CHAT FROM HISTORY ===');
+    console.log('Loading chat:', chat.title);
     
-    // Show history in a simple alert for now
-    if (history.length === 0) {
-      console.log('No history found, showing alert');
-      alert('No chat history found. Start a conversation and try again!');
-    } else {
-      console.log('Found history, creating list');
-      const historyList = history.map((chat: any, index: number) => 
-        `${index + 1}. ${chat.title} (${new Date(chat.timestamp).toLocaleDateString()})`
-      ).join('\n');
-      
-      console.log('History list:', historyList);
-      alert(`Chat History (${history.length} chats):\n\n${historyList}`);
+    // Save current chat to history before loading new one
+    if (state.messages.length > 0) {
+      saveCurrentChatToHistory();
     }
     
-    // Also send to extension if needed
-    postMessage({ type: 'chat:history' });
+    // Load the selected chat messages
+    setState((prev) => ({
+      ...prev,
+      messages: chat.messages || [],
+    }));
     
-    return history;
-  }, [postMessage, getChatHistory]);
+    console.log('Chat loaded with', chat.messages?.length || 0, 'messages');
+  }, [state.messages, saveCurrentChatToHistory]);
+
+  // Delete a chat from history
+  const handleDeleteChat = useCallback((chatId: string) => {
+    console.log('=== DELETING CHAT FROM HISTORY ===');
+    console.log('Deleting chat ID:', chatId);
+    
+    try {
+      const existingHistory = JSON.parse(localStorage.getItem('paypilot-chat-history') || '[]');
+      const updatedHistory = existingHistory.filter((chat: any) => chat.id !== chatId);
+      localStorage.setItem('paypilot-chat-history', JSON.stringify(updatedHistory));
+      
+      console.log('Chat deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete chat:', error);
+    }
+  }, []);
 
   // Load MCP servers on mount
   useEffect(() => {
@@ -617,5 +634,10 @@ export const useChat = () => {
     onMcpInfo: handleMcpInfo,
     handleNewChat,
     handleChatHistory,
+    showHistoryModal,
+    setShowHistoryModal,
+    getChatHistory,
+    handleLoadChat,
+    handleDeleteChat,
   };
 };

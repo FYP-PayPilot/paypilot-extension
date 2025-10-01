@@ -7,6 +7,7 @@
   --panel-border: var(--vscode-panel-border);
   --accent: var(--vscode-focusBorder);
   --accent-hover: color-mix(in srgb, var(--accent) 80%, transparent 20%);
+  --danger: var(--vscode-errorForeground, #ff6b6b);
   --link: var(--vscode-textLink-foreground);
   --button-foreground: var(--vscode-button-foreground, #fff);
   --bubble-user: color-mix(in srgb, var(--accent) 15%, var(--background) 85%);
@@ -16,6 +17,8 @@
   --border: color-mix(in srgb, var(--panel-border) 60%, transparent 40%);
   --border-hover: var(--panel-border);
   --font-editor: var(--vscode-editor-font-family);
+  --text-primary: var(--vscode-foreground);
+  --text-secondary: var(--vscode-descriptionForeground);
   
   /* Spacing system */
   --space-xs: 4px;
@@ -110,6 +113,133 @@ html, body, #root {
     padding: 4px 6px;
     gap: 4px;
   }
+}
+
+/* Chat History Modal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  overflow: hidden;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.close-button {
+  font-size: 18px;
+  font-weight: bold;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-body {
+  max-height: 60vh;
+  overflow-y: auto;
+  padding: var(--space-sm);
+}
+
+.empty-history {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--text-secondary);
+}
+
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-sm);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--background);
+  transition: all 0.15s ease;
+}
+
+.history-item:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+}
+
+.history-item-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-title {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.history-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.history-actions {
+  display: flex;
+  gap: var(--space-xs);
+  margin-left: var(--space-sm);
+}
+
+.load-button {
+  color: var(--accent);
+}
+
+.load-button:hover {
+  background: var(--accent);
+  color: white;
+}
+
+.delete-button {
+  color: var(--text-secondary);
+}
+
+.delete-button:hover {
+  background: var(--danger);
+  color: white;
 }
 
 .messages-container {

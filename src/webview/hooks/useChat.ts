@@ -75,7 +75,7 @@ export const useChat = () => {
       console.warn('Failed to load chat history:', error);
       return [];
     }
-
+  }, []);
   const findActiveAssistantMessageIndex = useCallback((messages: ChatMessage[]) => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const entry = messages[index];

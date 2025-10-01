@@ -152,6 +152,27 @@ export interface ChatAgentSummaryMessage {
   text: string;
 }
 
+export interface FileChange {
+  fileName: string;
+  filePath: string;
+  operation:
+    | "create"
+    | "update"
+    | "delete"
+    | "directory"
+    | "directory-delete"
+    | "read";
+  linesAdded?: number;
+  linesDeleted?: number;
+}
+
+export interface ChatMultiFileEditSummaryMessage {
+  type: "chat:multi-file-edit-summary";
+  changes: FileChange[];
+  totalLinesAdded: number;
+  totalLinesDeleted: number;
+}
+
 /** Sent to update context files list in UI */
 export interface ContextListMessage {
   type: 'context:list';
@@ -187,6 +208,7 @@ export type ExtensionToWebviewMessage =
   | ChatCodeAppliedMessage
   | ChatToolActivityMessage
   | ChatAgentSummaryMessage
+  | ChatMultiFileEditSummaryMessage
   | ContextListMessage
   | ContextAddResponseMessage
   | ContextFilePickerMessage
@@ -243,6 +265,11 @@ export interface ChatMessage {
     detail?: string;
     filePath?: string;
     operation?: string;
+  };
+  multiFileEditSummary?: {
+    changes: FileChange[];
+    totalLinesAdded: number;
+    totalLinesDeleted: number;
   };
 }
 

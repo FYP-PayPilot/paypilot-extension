@@ -584,6 +584,52 @@ html, body, #root {
   margin-bottom: var(--space-sm);
 }
 
+.suggested-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: var(--space-sm) 0;
+  padding: 0 var(--space-xs);
+}
+
+.suggested-prompt-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: 0.8;
+}
+
+.suggested-prompt-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--accent);
+  font-size: 13px;
+  padding: var(--space-xs) var(--space-sm);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  font-family: inherit;
+}
+
+.suggested-prompt-button:hover {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.suggested-prompt-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  color: var(--muted);
+  border-color: var(--border);
+}
+
+.suggested-prompt-button:disabled:hover {
+  background: transparent;
+  border-color: var(--border);
+}
+
 .input-row {
   display: flex;
   gap: var(--space-sm);
@@ -999,6 +1045,42 @@ html, body, #root {
 
 .code-applied-card:hover {
   background: var(--surface-hover);
+}
+
+/* Tool Activity Card */
+.tool-activity-card {
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  background: var(--panel-bg);
+  margin: var(--space-sm) 0;
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.tool-activity-card--interactive {
+  cursor: pointer;
+}
+
+.tool-activity-card--interactive:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-hover);
+}
+
+.tool-activity-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tool-activity-title {
+  font-weight: 600;
+}
+
+.tool-activity-detail {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .code-applied-header {

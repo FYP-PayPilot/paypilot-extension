@@ -2,7 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { StatusBarService } from "./statusBarService";
 import { OriginalContentProvider } from "./originalContentProvider";
-import { PersistedTrackedFile, TrackedFile } from "../../types/diff";
+import { FileOperation, PersistedTrackedFile, TrackedFile } from "../../types/diff";
 
 const TRACKED_FILES_STATE_KEY = "paypilot.trackedDiffFiles"; // key for storing tracked files in workspaceState
 
@@ -64,10 +64,16 @@ export class DiffService {
 
       const originalUri = this.toOriginalUri(record.filePath); // create a URI for the original content
       const originalContent = record.originalContent ?? ""; // get the original content, defaulting to an empty string if undefined
-      this.originalContentProvider.setOriginalContent(originalUri, originalContent); // set the original uri and content for each tracked file in the contentByUri map
+      const operation: FileOperation = record.operation ?? "update"; // default to update for legacy entries
+      if (!record.isDirectory) {
+        this.originalContentProvider.setOriginalContent(originalUri, originalContent);
+      }
       this.trackedFiles.set(record.filePath, { // set the original uri and content for each tracked file in the trackedFiles map
         originalUri,
         originalContent,
+        operation,
+        isDirectory: record.isDirectory,
+        directorySnapshot: record.directorySnapshot,
       });
     }
 
@@ -89,6 +95,9 @@ export class DiffService {
       ([filePath, entry]) => ({
         filePath,
         originalContent: entry.originalContent,
+        operation: entry.operation,
+        isDirectory: entry.isDirectory,
+        directorySnapshot: entry.directorySnapshot,
       })
     );
 
@@ -102,33 +111,65 @@ export class DiffService {
   /**
    * Register newly modified files coming back from the AI so we can show diffs/undo buttons.
    * Ignores files that are already being tracked to preserve the original baseline.
-   * @param fileModifications Array of objects containing filePath and originalContent
+   * @param fileModifications Array of objects containing filePath, originalContent, and the operation performed
    * @returns Promise<void>
    */
   async trackModifiedFiles(
     fileModifications: Array<{
       filePath: string;
       originalContent: string;
+      operation: FileOperation;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
     }>
   ): Promise<void> {
-
     for (const mod of fileModifications) {
-      const filePath = mod.filePath; // get the file path of the modified file
-      const existing = this.trackedFiles.get(filePath); // check if the file is already being tracked and get its tracked file entry if it is
+      const { filePath, originalContent, operation, isDirectory, directorySnapshot } = mod;
+      const existing = this.trackedFiles.get(filePath);
 
-      if (!existing) { // if there is no existing tracked file for this path, create a new one
+      if (!existing) {
         const originalUri = this.toOriginalUri(filePath);
-        this.originalContentProvider.setOriginalContent(originalUri, mod.originalContent);
+        if (!isDirectory) {
+          this.originalContentProvider.setOriginalContent(originalUri, originalContent);
+        }
         this.trackedFiles.set(filePath, {
           originalUri,
-          originalContent: mod.originalContent,
+          originalContent,
+          operation,
+          isDirectory,
+          directorySnapshot,
         });
-      } else { // if there is an existing tracked file, do not overwrite the original content, but just refresh the content provider
+        continue;
+      }
+
+      let nextOriginalContent = existing.originalContent;
+      let nextDirectorySnapshot = existing.directorySnapshot;
+
+      if (operation === 'delete') {
+        if (originalContent.length > 0 && (existing.operation !== 'delete' || existing.originalContent.length === 0)) {
+          nextOriginalContent = originalContent;
+        }
+        if (directorySnapshot && (!existing.directorySnapshot || existing.operation !== 'delete')) {
+          nextDirectorySnapshot = directorySnapshot;
+        }
+      }
+
+      const nextEntry: TrackedFile = {
+        originalUri: existing.originalUri,
+        originalContent: nextOriginalContent,
+        operation,
+        isDirectory,
+        directorySnapshot: nextDirectorySnapshot,
+      };
+
+      if (!isDirectory) {
         this.originalContentProvider.setOriginalContent(
-          existing.originalUri,
-          existing.originalContent
+          nextEntry.originalUri,
+          nextEntry.originalContent
         );
       }
+
+      this.trackedFiles.set(filePath, nextEntry);
     }
 
     this.updateStatusBarButtons();
@@ -141,42 +182,27 @@ export class DiffService {
    * @returns Promise<void>
    */
   async acceptAllChanges(): Promise<void> {
-    
-    // if there are no tracked files, show information message and return
     if (this.trackedFiles.size === 0) {
       vscode.window.showInformationMessage("No changes to accept");
       return;
     }
 
-    // get the list of tracked file paths, iterate over them and keep each change by closing diffs and removing the file from tracking
     const files = this.getActiveDiffFiles();
     for (const filePath of files) {
+      const entry = this.trackedFiles.get(filePath);
       await this.closeDiffForFile(filePath);
+      if (entry?.operation === 'delete') {
+        const targetUri = vscode.Uri.file(filePath);
+        if (entry.isDirectory) {
+          await this.safeDeleteDirectory(targetUri);
+        } else {
+          await this.safeDeleteFile(targetUri);
+        }
+      }
       this.removeTrackedFile(filePath);
     }
 
-    this.updateStatusBarButtons(); // update the status bar
-  }
-
-  /**
-   * Revert every tracked file back to its captured baseline.
-   * @returns Promise<void>
-   */
-  async rejectAllChanges(): Promise<void> {
-
-    // if there are no tracked files, show information message and return
-    if (!this.hasChanges()) {
-      vscode.window.showInformationMessage("No changes to reject");
-      return;
-    }
-
-    // get the list of tracked file paths, iterate over them and undo each change
-    const files = Array.from(this.trackedFiles.keys());
-    for (const filePath of files) {
-      await this.undoFile(filePath, false);
-    }
-
-    this.updateStatusBarButtons(); // update the status bar
+    this.updateStatusBarButtons();
   }
 
   /**
@@ -184,18 +210,39 @@ export class DiffService {
    * Closes any open diff tab for the file and removes it from the tracked files list.
    * @returns Promise<void>
    */
-  async keepCurrentFileChanges(): Promise<void> {
+  async rejectAllChanges(): Promise<void> {
+    if (!this.hasChanges()) {
+      vscode.window.showInformationMessage("No changes to reject");
+      return;
+    }
 
-    // get the file path of the active tracked file if there are tracked changes
+    const files = Array.from(this.trackedFiles.keys());
+    for (const filePath of files) {
+      await this.undoFile(filePath, false);
+    }
+
+    this.updateStatusBarButtons();
+  }
+
+  async keepCurrentFileChanges(): Promise<void> {
     const filePath = this.getActiveTrackedFilePath();
     if (!filePath) {
       vscode.window.showWarningMessage("No PayPilot changes to keep in the active file");
       return;
     }
 
-    await this.closeDiffForFile(filePath); // close any open diff tab for the file
-    this.removeTrackedFile(filePath); // remove the file from the tracked files list
-    this.updateStatusBarButtons(); // update status bar
+    const entry = this.trackedFiles.get(filePath);
+    await this.closeDiffForFile(filePath);
+    if (entry?.operation === 'delete') {
+      const targetUri = vscode.Uri.file(filePath);
+      if (entry.isDirectory) {
+        await this.safeDeleteDirectory(targetUri);
+      } else {
+        await this.safeDeleteFile(targetUri);
+      }
+    }
+    this.removeTrackedFile(filePath);
+    this.updateStatusBarButtons();
   }
 
   /**
@@ -420,41 +467,58 @@ export class DiffService {
    * @returns Promise<void>
    */
   private async undoFile(filePath: string, reopenEditor: boolean = true): Promise<void> {
-
-    // get the tracked file entry for the specified file path
     const entry = this.trackedFiles.get(filePath);
     if (!entry) {
       return;
     }
 
-    await this.closeDiffForFile(filePath, false); // close any open diff tab for the file without reopening the editor yet
+    await this.closeDiffForFile(filePath, false);
+    const uri = vscode.Uri.file(filePath);
 
-    const uri = vscode.Uri.file(filePath); // URI for the modified file in the workspace
-    const document = await vscode.workspace.openTextDocument(uri); // open the document for the file
-
-    // replace the entire content of the document with the original content
-    const edit = new vscode.WorkspaceEdit();
-    const fullRange = new vscode.Range(
-      document.positionAt(0),
-      document.positionAt(document.getText().length)
-    );
-    edit.replace(uri, fullRange, entry.originalContent);
-
-    // apply the edit to the workspace
-    const applied = await vscode.workspace.applyEdit(edit);
-    if (!applied) {
+    try {
+      if (entry.isDirectory) {
+        await this.undoDirectoryChange(entry, uri);
+      } else {
+        switch (entry.operation) {
+          case "create":
+            await this.safeDeleteFile(uri);
+            break;
+          case 'delete':
+            await this.ensureParentDirectory(uri);
+            await vscode.workspace.fs.writeFile(uri, Buffer.from(entry.originalContent, 'utf8'));
+            if (reopenEditor) {
+              const restoredDocument = await vscode.workspace.openTextDocument(uri);
+              await vscode.window.showTextDocument(restoredDocument, { preview: false });
+            }
+            break;
+          default: {
+            const document = await vscode.workspace.openTextDocument(uri);
+            const edit = new vscode.WorkspaceEdit();
+            const fullRange = new vscode.Range(
+              document.positionAt(0),
+              document.positionAt(document.getText().length)
+            );
+            edit.replace(uri, fullRange, entry.originalContent);
+            const applied = await vscode.workspace.applyEdit(edit);
+            if (!applied) {
+              vscode.window.showErrorMessage(`Failed to undo changes for ${this.getFileName(filePath)}`);
+              return;
+            }
+            await document.save();
+            if (reopenEditor) {
+              await vscode.window.showTextDocument(document, { preview: false });
+            }
+            break;
+          }
+        }
+      }
+    } catch (error) {
       vscode.window.showErrorMessage(`Failed to undo changes for ${this.getFileName(filePath)}`);
+      console.error(`[PayPilot] Undo failed for ${filePath}:`, error);
       return;
     }
 
-    await document.save(); // save the document to persist the changes
-
-    // if the reopenEditor flag is true, reopen the standard editor for the file
-    if (reopenEditor) {
-      await vscode.window.showTextDocument(document, { preview: false });
-    }
-
-    this.removeTrackedFile(filePath); // remove the file from the tracked files list
+    this.removeTrackedFile(filePath);
   }
 
   /**
@@ -525,6 +589,79 @@ export class DiffService {
    * @param filePath A string representing the file path to convert
    * @returns vscode.Uri The normalized URI for the original content
    */
+  private async safeDeleteFile(uri: vscode.Uri): Promise<void> {
+    try {
+      await vscode.workspace.fs.delete(uri, { recursive: false, useTrash: true });
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+        return;
+      }
+      console.warn(`[PayPilot] Failed to delete ${uri.fsPath} during undo:`, error);
+    }
+  }
+
+  private async safeDeleteDirectory(uri: vscode.Uri): Promise<void> {
+    try {
+      await vscode.workspace.fs.delete(uri, { recursive: true, useTrash: true });
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+        return;
+      }
+      console.warn(`[PayPilot] Failed to delete directory ${uri.fsPath} during undo:`, error);
+    }
+  }
+
+  private async undoDirectoryChange(entry: TrackedFile, uri: vscode.Uri): Promise<void> {
+    if (entry.operation === 'create') {
+      if (await this.isDirectoryEmpty(uri)) {
+        await this.safeDeleteDirectory(uri);
+      } else {
+        console.warn(`[PayPilot] Skipped removing ${uri.fsPath} because it is not empty.`);
+      }
+      return;
+    }
+
+    if (!entry.directorySnapshot) {
+      return;
+    }
+
+    await this.restoreDirectorySnapshot(uri, entry.directorySnapshot);
+  }
+
+  private async isDirectoryEmpty(uri: vscode.Uri): Promise<boolean> {
+    try {
+      const entries = await vscode.workspace.fs.readDirectory(uri);
+      return entries.length === 0;
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+        return true;
+      }
+      throw error;
+    }
+  }
+
+  private async restoreDirectorySnapshot(baseUri: vscode.Uri, snapshotJson: string): Promise<void> {
+    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = JSON.parse(snapshotJson);
+
+    await vscode.workspace.fs.createDirectory(baseUri);
+
+    for (const entry of entries) {
+      const target = vscode.Uri.joinPath(baseUri, entry.path);
+      if (entry.type === 'directory') {
+        await vscode.workspace.fs.createDirectory(target);
+      } else {
+        await this.ensureParentDirectory(target);
+        const content = entry.content ? Buffer.from(entry.content, 'base64') : Buffer.from('');
+        await vscode.workspace.fs.writeFile(target, content);
+      }
+    }
+  }
+
+  private async ensureParentDirectory(uri: vscode.Uri): Promise<void> {
+    const dirPath = path.dirname(uri.fsPath);
+    await vscode.workspace.fs.createDirectory(vscode.Uri.file(dirPath));
+  }
+
   private toOriginalUri(filePath: string): vscode.Uri {
     return vscode.Uri.file(filePath).with({ scheme: 'paypilot-original', query: '', fragment: '' });
   }

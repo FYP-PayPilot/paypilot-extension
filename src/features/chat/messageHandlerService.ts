@@ -10,7 +10,7 @@ import { ContextMessageService } from "../context/contextMessageService";
 import { McpMessageService } from "../mcp/mcpMessageService";
 import { ModelMessageService } from "../language-model/modelMessageService";
 import { ChatHistoryService } from "./chatHistoryService";
-import { ChatMessage } from "../../types/chat";
+import { ChatMessage, FileChange } from "../../types/chat";
 import { FileOperation } from "../../types/diff";
 import { resolveWorkspaceUri, relativeUriPath } from "../../utils/workspace";
 
@@ -38,6 +38,19 @@ export class MessageHandlerService {
   private readonly modelMessageService: ModelMessageService;
   private readonly chatHistoryService: ChatHistoryService;
   private agentChangeLog: string[] = [];
+  private currentSessionFileChanges: Array<{
+    fileName: string;
+    filePath: string;
+    operation:
+      | "create"
+      | "update"
+      | "delete"
+      | "directory"
+      | "directory-delete"
+      | "read";
+    linesAdded?: number;
+    linesDeleted?: number;
+  }> = [];
 
   constructor(
     workspaceState: vscode.Memento,
@@ -317,6 +330,9 @@ export class MessageHandlerService {
           if (summary) {
             panel.postMessage({ type: 'chat:agent-summary', text: summary });
           }
+
+          // Send multi-file edit summary if there were file changes
+          this.sendMultiFileEditSummary(panel);
           break;
         }
 
@@ -347,8 +363,8 @@ export class MessageHandlerService {
               if (planSteps.length > 0) {
                 agentPlan.push(...planSteps);
                 panel.postMessage({
-                  type: 'chat:agent-plan',
-                  title: 'Proposed plan',
+                  type: "chat:agent-plan",
+                  title: "Proposed plan",
                   steps: planSteps,
                 });
                 planSent = true;
@@ -678,8 +694,32 @@ export class MessageHandlerService {
       ...activity,
     });
 
-    if (activity.operation === "directory" || activity.operation === "directory-delete") {
-      const description = `${activity.operation === "directory" ? "Created" : "Deleted"} ${activity.detail ?? activity.title}`;
+    // Track file changes for summary
+    if (activity.filePath && activity.operation) {
+      const fileName = path.basename(activity.filePath);
+      const fileChange: FileChange = {
+        fileName,
+        filePath: activity.filePath,
+        operation: activity.operation as any,
+      };
+
+      // Add line change information if available from context
+      if (context) {
+        // For file operations, we'll calculate lines later if needed
+        // For now, just track the operation
+        this.currentSessionFileChanges.push(fileChange);
+      } else {
+        this.currentSessionFileChanges.push(fileChange);
+      }
+    }
+
+    if (
+      activity.operation === "directory" ||
+      activity.operation === "directory-delete"
+    ) {
+      const description = `${
+        activity.operation === "directory" ? "Created" : "Deleted"
+      } ${activity.detail ?? activity.title}`;
       this.recordAgentChange(description);
     }
   }
@@ -772,6 +812,33 @@ export class MessageHandlerService {
       console.warn("[PayPilot] Failed to describe tool activity", error);
       return undefined;
     }
+  }
+
+  private sendMultiFileEditSummary(panel: vscode.Webview): void {
+    if (this.currentSessionFileChanges.length === 0) {
+      return;
+    }
+
+    // Calculate totals
+    const totalLinesAdded = this.currentSessionFileChanges.reduce(
+      (sum, change) => sum + (change.linesAdded || 0),
+      0
+    );
+    const totalLinesDeleted = this.currentSessionFileChanges.reduce(
+      (sum, change) => sum + (change.linesDeleted || 0),
+      0
+    );
+
+    // Send the summary message
+    panel.postMessage({
+      type: "chat:multi-file-edit-summary",
+      changes: this.currentSessionFileChanges,
+      totalLinesAdded,
+      totalLinesDeleted,
+    });
+
+    // Clear the changes for the next session
+    this.currentSessionFileChanges = [];
   }
 
   private async applyToolSideEffects(

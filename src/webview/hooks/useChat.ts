@@ -29,6 +29,53 @@ export const useChat = () => {
     return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }, []);
 
+
+  // Simple chat history functionality
+  const saveCurrentChatToHistory = useCallback(() => {
+    console.log('=== ATTEMPTING TO SAVE CHAT ===');
+    console.log('Current messages length:', state.messages.length);
+    
+    if (state.messages.length === 0) {
+      console.log('No messages to save, skipping');
+      return;
+    }
+    
+    try {
+      const existingHistory = JSON.parse(localStorage.getItem('paypilot-chat-history') || '[]');
+      console.log('Existing history length:', existingHistory.length);
+      
+      const chatSession = {
+        id: `chat_${Date.now()}`,
+        messages: state.messages,
+        timestamp: Date.now(),
+        title: state.messages[0]?.content.slice(0, 50) + '...' || 'New Chat'
+      };
+      
+      console.log('Created chat session:', chatSession.title);
+      
+      existingHistory.unshift(chatSession); // Add to beginning
+      
+      // Keep only last 10 chats
+      if (existingHistory.length > 10) {
+        existingHistory.splice(10);
+      }
+      
+      localStorage.setItem('paypilot-chat-history', JSON.stringify(existingHistory));
+      console.log('=== CHAT SAVED TO LOCALSTORAGE ===');
+      console.log('New history length:', existingHistory.length);
+    } catch (error) {
+      console.error('Failed to save chat history:', error);
+    }
+  }, [state.messages]);
+
+  const getChatHistory = useCallback(() => {
+    try {
+      return JSON.parse(localStorage.getItem('paypilot-chat-history') || '[]');
+    } catch (error) {
+      console.warn('Failed to load chat history:', error);
+      return [];
+    }
+
   const findActiveAssistantMessageIndex = useCallback((messages: ChatMessage[]) => {
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const entry = messages[index];
@@ -42,6 +89,7 @@ export const useChat = () => {
       }
     }
     return -1;
+
   }, []);
 
   // Auto-load models when extension starts
@@ -215,20 +263,45 @@ export const useChat = () => {
 
   // Handle new chat
   const handleNewChat = useCallback(() => {
+    // Save current chat to history before starting new one
+    saveCurrentChatToHistory();
+    
     // Clear current chat messages
     setState((prev) => ({
       ...prev,
       messages: [],
     }));
 
-    // Send message to extension
+    // Send message to extension (if needed for backend sync)
     postMessage({ type: 'chat:new' });
-  }, [postMessage]);
+  }, [postMessage, saveCurrentChatToHistory]);
 
   // Handle chat history
   const handleChatHistory = useCallback(() => {
+    console.log('=== HISTORY BUTTON CLICKED ===');
+    const history = getChatHistory();
+    console.log('Chat History:', history);
+    console.log('History length:', history.length);
+    
+    // Show history in a simple alert for now
+    if (history.length === 0) {
+      console.log('No history found, showing alert');
+      alert('No chat history found. Start a conversation and try again!');
+    } else {
+      console.log('Found history, creating list');
+      const historyList = history.map((chat: any, index: number) => 
+        `${index + 1}. ${chat.title} (${new Date(chat.timestamp).toLocaleDateString()})`
+      ).join('\n');
+      
+      console.log('History list:', historyList);
+      alert(`Chat History (${history.length} chats):\n\n${historyList}`);
+    }
+    
+    // Also send to extension if needed
     postMessage({ type: 'chat:history' });
-  }, [postMessage]);
+    
+    return history;
+  }, [postMessage, getChatHistory]);
 
   // Load MCP servers on mount
   useEffect(() => {
@@ -521,6 +594,28 @@ export const useChat = () => {
 
     return unsubscribe;                                  // Cleanup listener on unmount
   }, [onMessage, generateMessageId, findActiveAssistantMessageIndex]);
+
+  // Auto-save chat history when messages change (debounced)
+  useEffect(() => {
+    console.log('=== AUTO-SAVE EFFECT TRIGGERED ===');
+    console.log('Messages length:', state.messages.length);
+    
+    if (state.messages.length === 0) {
+      console.log('No messages, skipping auto-save');
+      return;
+    }
+    
+    console.log('Setting up auto-save timeout (2 seconds)');
+    const timeoutId = setTimeout(() => {
+      console.log('Auto-save timeout executed');
+      saveCurrentChatToHistory();
+    }, 2000); // Save 2 seconds after the last message change
+    
+    return () => {
+      console.log('Clearing auto-save timeout');
+      clearTimeout(timeoutId);
+    };
+  }, [state.messages, saveCurrentChatToHistory]);
 
   return {
     ...state,

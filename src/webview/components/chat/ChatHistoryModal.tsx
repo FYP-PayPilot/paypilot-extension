@@ -14,6 +14,7 @@ interface ChatHistoryModalProps {
   chatHistory: ChatSession[];
   onLoadChat: (chat: ChatSession) => void;
   onDeleteChat: (chatId: string) => void;
+  onCleanupDuplicates?: () => void;
 }
 
 export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
@@ -22,7 +23,11 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
   chatHistory,
   onLoadChat,
   onDeleteChat,
+  onCleanupDuplicates,
 }) => {
+  const [showDeleteConfirm, setShowDeleteConfirm] = React.useState<ChatSession | null>(null);
+  const [showCleanupConfirm, setShowCleanupConfirm] = React.useState(false);
+
   if (!isOpen) return null;
 
   const formatDate = (timestamp: number) => {
@@ -34,11 +39,56 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
     onClose();
   };
 
+  const handleDeleteChat = (chat: ChatSession) => {
+    console.log('Delete button clicked for chat:', chat.title);
+    setShowDeleteConfirm(chat);
+  };
+
+  const confirmDelete = () => {
+    if (showDeleteConfirm) {
+      console.log('Confirming delete for chat:', showDeleteConfirm.title);
+      onDeleteChat(showDeleteConfirm.id);
+      setShowDeleteConfirm(null);
+    }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(null);
+  };
+
+  const handleCleanup = () => {
+    setShowCleanupConfirm(true);
+  };
+
+  const confirmCleanup = () => {
+    if (onCleanupDuplicates) {
+      onCleanupDuplicates();
+    }
+    setShowCleanupConfirm(false);
+  };
+
+  const cancelCleanup = () => {
+    setShowCleanupConfirm(false);
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
-          <h3>Chat History</h3>
+          <div className="modal-header-left">
+            <h3>Chat History</h3>
+            {onCleanupDuplicates && chatHistory.length > 5 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={handleCleanup}
+                className="cleanup-button"
+                title="Remove duplicate conversations"
+              >
+                Clean Up
+              </Button>
+            )}
+          </div>
           <Button
             variant="ghost"
             size="sm"
@@ -58,29 +108,26 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
             <div className="history-list">
               {chatHistory.map((chat, index) => (
                 <div key={chat.id} className="history-item">
-                  <div className="history-item-content">
+                  <div className="history-item-content" onClick={() => {
+                    console.log('History item clicked!', chat.title);
+                    handleLoadChat(chat);
+                  }}>
                     <div className="history-title">{chat.title}</div>
                     <div className="history-meta">
                       {formatDate(chat.timestamp)} • {chat.messages.length} messages
                     </div>
                   </div>
-                  <div className="history-actions">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleLoadChat(chat)}
-                      className="load-button"
-                    >
-                      Load
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onDeleteChat(chat.id)}
-                      className="delete-button"
+                  <div className="history-actions" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                    <button
+                      className="delete-button-simple"
+                      onClick={() => {
+                        console.log('Delete button clicked!', chat.title);
+                        handleDeleteChat(chat);
+                      }}
+                      title="Delete this conversation"
                     >
                       Delete
-                    </Button>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -88,6 +135,44 @@ export const ChatHistoryModal: React.FC<ChatHistoryModalProps> = ({
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="confirmation-overlay" onClick={cancelDelete}>
+          <div className="confirmation-dialog" onClick={(e) => e.stopPropagation()}>
+            <h4>Delete Chat</h4>
+            <p>Are you sure you want to delete "{showDeleteConfirm.title}"?</p>
+            <p className="warning-text">This action cannot be undone.</p>
+            <div className="confirmation-actions">
+              <Button variant="ghost" size="sm" onClick={cancelDelete}>
+                Cancel
+              </Button>
+              <Button variant="ghost" size="sm" onClick={confirmDelete} className="confirm-delete-button">
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cleanup Confirmation Dialog */}
+      {showCleanupConfirm && (
+        <div className="confirmation-overlay" onClick={cancelCleanup}>
+          <div className="confirmation-dialog" onClick={(e) => e.stopPropagation()}>
+            <h4>Clean Up History</h4>
+            <p>This will remove duplicate conversations from your history.</p>
+            <p className="warning-text">Continue with cleanup?</p>
+            <div className="confirmation-actions">
+              <Button variant="ghost" size="sm" onClick={cancelCleanup}>
+                Cancel
+              </Button>
+              <Button variant="ghost" size="sm" onClick={confirmCleanup} className="confirm-cleanup-button">
+                Clean Up
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

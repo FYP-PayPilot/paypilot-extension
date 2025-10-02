@@ -148,11 +148,28 @@ html, body, #root {
   border-bottom: 1px solid var(--border);
 }
 
+.modal-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
 .modal-header h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.cleanup-button {
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+}
+
+.cleanup-button:hover {
+  background: var(--accent);
+  color: white;
 }
 
 .close-button {
@@ -202,6 +219,14 @@ html, body, #root {
 .history-item-content {
   flex: 1;
   min-width: 0;
+  cursor: pointer;
+  padding: var(--space-xs);
+  border-radius: var(--radius-sm);
+  transition: background 0.15s ease;
+}
+
+.history-item-content:hover {
+  background: var(--surface-hover);
 }
 
 .history-title {
@@ -240,6 +265,92 @@ html, body, #root {
 .delete-button:hover {
   background: var(--danger);
   color: white;
+}
+
+.delete-button-simple {
+  background: none;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  color: white;
+  opacity: 0.7;
+  transition: all 0.15s ease;
+}
+
+.delete-button-simple:hover {
+  opacity: 1;
+  background: var(--danger);
+  transform: scale(1.1);
+}
+
+/* Confirmation Dialog */
+.confirmation-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1100;
+}
+
+.confirmation-dialog {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  min-width: 300px;
+  max-width: 400px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+}
+
+.confirmation-dialog h4 {
+  margin: 0 0 var(--space-sm) 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.confirmation-dialog p {
+  margin: 0 0 var(--space-sm) 0;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.warning-text {
+  color: var(--text-secondary) !important;
+  font-style: italic;
+  font-size: 14px;
+}
+
+.confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.confirm-delete-button {
+  background: var(--danger);
+  color: white;
+}
+
+.confirm-delete-button:hover {
+  background: color-mix(in srgb, var(--danger) 85%, black 15%);
+}
+
+.confirm-cleanup-button {
+  background: var(--accent);
+  color: white;
+}
+
+.confirm-cleanup-button:hover {
+  background: color-mix(in srgb, var(--accent) 85%, black 15%);
 }
 
 .messages-container {

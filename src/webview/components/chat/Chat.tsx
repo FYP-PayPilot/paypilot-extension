@@ -35,8 +35,10 @@ export const Chat: React.FC = () => {
     showHistoryModal,
     setShowHistoryModal,
     getChatHistory,
+    chatHistory,
     handleLoadChat,
-    handleDeleteChat
+    handleDeleteChat,
+    cleanupDuplicateHistory
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -113,9 +115,10 @@ export const Chat: React.FC = () => {
       <ChatHistoryModal
         isOpen={showHistoryModal}
         onClose={() => setShowHistoryModal(false)}
-        chatHistory={getChatHistory()}
+        chatHistory={chatHistory}
         onLoadChat={handleLoadChat}
         onDeleteChat={handleDeleteChat}
+        onCleanupDuplicates={cleanupDuplicateHistory}
       />
     </div>
   );

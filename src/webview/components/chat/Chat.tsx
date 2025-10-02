@@ -4,6 +4,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ContextList } from './ContextList';
 import { ChatControls } from './ChatControls';
+import { ChatHistoryModal } from './ChatHistoryModal';
 
 /**
  * Main chat component that orchestrates the entire chat interface
@@ -30,7 +31,14 @@ export const Chat: React.FC = () => {
     onServerSelection,
     onMcpInfo,
     handleNewChat,
-    handleChatHistory
+    handleChatHistory,
+    showHistoryModal,
+    setShowHistoryModal,
+    getChatHistory,
+    chatHistory,
+    handleLoadChat,
+    handleDeleteChat,
+    cleanupDuplicateHistory
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -102,6 +110,16 @@ export const Chat: React.FC = () => {
           onMcpInfo={onMcpInfo}
         />
       </div>
+
+      {/* Chat History Modal */}
+      <ChatHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        chatHistory={chatHistory}
+        onLoadChat={handleLoadChat}
+        onDeleteChat={handleDeleteChat}
+        onCleanupDuplicates={cleanupDuplicateHistory}
+      />
     </div>
   );
 };

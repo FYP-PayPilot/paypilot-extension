@@ -12,29 +12,41 @@ import { ModelInfo } from '../../types/chat';
  * @returns Promise<ModelInfo[]> Array of available models
  */
 export async function getAvailableModels(): Promise<ModelInfo[]> {
+  const backendUrl = "http://localhost:8000";
   try {
     console.log('[PayPilot] Loading available language models...');
     
-    const vscodeModels = await vscode.lm.selectChatModels();
-    console.log(`[PayPilot] Models discovered: (${vscodeModels.length})`, 
-      vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name, vendor: m.vendor })));
+    const response = await fetch(`${backendUrl}/models`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          });
+    
+          if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || "Backend request failed");
+          }
+    
+    const models: ModelInfo[] = await response.json();
+    // const vscodeModels = await vscode.lm.selectChatModels();
+    // console.log(`[PayPilot] Models discovered: (${vscodeModels.length})`, 
+    //   vscodeModels.map(m => ({ id: m.id, family: m.family, name: m.name, vendor: m.vendor })));
 
-    if (vscodeModels.length === 0) {
-      console.warn('[PayPilot] No VS Code language models available.');
-      return [];
-    }
+    // if (vscodeModels.length === 0) {
+    //   console.warn('[PayPilot] No VS Code language models available.');
+    //   return [];
+    // }
 
-    // Convert VS Code model objects to ModelInfo format which the React UI expects
-    const models: ModelInfo[] = vscodeModels.map(model => ({
-      id: model.id,
-      name: model.name || model.family || 'Unknown Model',
-      vendor: model.vendor,
-      family: model.family,
-      version: model.version,
-      maxTokens: model.maxInputTokens,
-      description: `VS Code language model (${model.vendor})`,
-      isExternal: false
-    }));
+    // // Convert VS Code model objects to ModelInfo format which the React UI expects
+    // const models: ModelInfo[] = vscodeModels.map(model => ({
+    //   id: model.id,
+    //   name: model.name || model.family || 'Unknown Model',
+    //   vendor: model.vendor,
+    //   family: model.family,
+    //   version: model.version,
+    //   maxTokens: model.maxInputTokens,
+    //   description: `VS Code language model (${model.vendor})`,
+    //   isExternal: false
+    // }));
 
     return models.sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {

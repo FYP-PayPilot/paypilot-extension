@@ -2,8 +2,10 @@ import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./features/chat/messageHandlerService";
 import { registerPaypilotTools } from "./tools";
+import { ToolExecutionServer } from "./features/tool-execution/toolExecutionServer";
 
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
+let toolServer: ToolExecutionServer | undefined;
 
 /**
  * Entrypoint for the PayPilot extension. Wires up the chat panel, commands,
@@ -19,6 +21,21 @@ export async function activate(context: vscode.ExtensionContext) {
     context.workspaceState,
     chatTools
   );
+
+  // Start tool execution server
+  toolServer = new ToolExecutionServer();
+  try {
+    await toolServer.start(3001);
+    vscode.window.showInformationMessage(
+      `PayPilot tool server running on port ${toolServer.getPort()}`
+    );
+  } catch (error) {
+    console.error("[PayPilot] Failed to start tool server:", error);
+    vscode.window.showErrorMessage("Failed to start PayPilot tool server");
+  }
+  context.subscriptions.push({
+    dispose: () => toolServer?.dispose()
+  });
 
   const chatProvider = new ChatViewProvider(context);
 
@@ -130,6 +147,7 @@ export async function activate(context: vscode.ExtensionContext) {
  * VS Code deactivation hook. Disposes long-lived services so they can clean up.
  */
 export function deactivate(): void {
+  toolServer?.dispose();
   messageHandlerService?.dispose();
   messageHandlerService = undefined;
 }

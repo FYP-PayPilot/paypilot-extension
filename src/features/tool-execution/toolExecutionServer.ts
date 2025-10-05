@@ -290,30 +290,31 @@ export class ToolExecutionServer {
     }
   }
 
-  start(port?: number): Promise<void> {
-    if (port) {
-      this.port = port;
-    }
-
-    return new Promise((resolve, reject) => {
-      this.server = this.setupServer();
-      
-      this.server.listen(this.port, () => {
-        console.log(`[ToolServer] Running on http://localhost:${this.port}`);
-        resolve();
-      });
-      
-      this.server.on('error', (error: any) => {
-        if (error.code === 'EADDRINUSE') {
-          console.log(`[ToolServer] Port ${this.port} in use, trying ${this.port + 1}`);
-          this.port++;
-          this.start().then(resolve).catch(reject);
-        } else {
-          reject(error);
-        }
-      });
-    });
+start(port?: number): Promise<void> {
+  if (port) {
+    this.port = port;
   }
+
+  return new Promise((resolve, reject) => {
+    this.server = this.setupServer();
+    
+    // Explicitly bind to 127.0.0.1
+    this.server.listen(this.port, '127.0.0.1', () => {
+      console.log(`[ToolServer] Running on http://127.0.0.1:${this.port}`);
+      resolve();
+    });
+    
+    this.server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        console.log(`[ToolServer] Port ${this.port} in use, trying ${this.port + 1}`);
+        this.port++;
+        this.start().then(resolve).catch(reject);
+      } else {
+        reject(error);
+      }
+    });
+  });
+}
 
   getPort(): number {
     return this.port;

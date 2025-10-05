@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getAvailableModels, getLanguageModel } from "../language-model/languageModelService";
+import { checkBackendHealth, getAvailableModels, getLanguageModel } from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
 import { ContextService } from "../context/contextService";
@@ -149,9 +149,18 @@ export class MessageHandlerService {
    */
   private async handleChatAsk(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
     try {
-      
+    // Check backend health first
+    const backendHealthy = await checkBackendHealth();
+    if (!backendHealthy) {
+      panel.postMessage({
+        type: "chat:error",
+        error: "Backend server is not reachable.",
+      });
+      return;
+    }
+
       // Get the specific language model to use
-      let selectedModel: vscode.LanguageModelChat | null = null;
+      let selectedModel = null;
       if (msg?.model) {
         selectedModel = await getLanguageModel(msg.model);
       }
@@ -161,26 +170,12 @@ export class MessageHandlerService {
         if (availableModels.length === 0) {
           panel.postMessage({
             type: "chat:error",
-            error: "No language models available. Please enable Copilot or sign in to VS Code.",
+            error: "No language models available.",
           });
           return;
         }
-        selectedModel = await getLanguageModel(availableModels[0].id);
-        if (!selectedModel) {
-          panel.postMessage({
-            type: "chat:error",
-            error: "Failed to load the fallback language model. Please check your model configuration or sign in to VS Code.",
-          });
-          return;
-        }
-      }
-
-      if (!selectedModel) {
-        panel.postMessage({
-          type: "chat:error", 
-          error: "Failed to load the selected language model.",
-        });
-        return;
+        // Use requested model or fall back to first available
+        selectedModel = msg?.model || availableModels[0].id;
       }
 
       const cfg = vscode.workspace.getConfiguration("paypilot");
@@ -216,7 +211,7 @@ export class MessageHandlerService {
       if (mode === "agent") {
         await this.handleAgentModeViaBackend(msg, panel, editorContext, contextFilesContent);
       } else {
-        await this.handleAskMode(selectedModel, composed, panel, abortController);
+        await this.handleAskModeViaBackend(msg, panel, editorContext, contextFilesContent);
       }
     } catch (error) {
       this.currentAbortController = null;
@@ -243,6 +238,55 @@ export class MessageHandlerService {
 
     try {
       const response = await fetch(`${backendUrl}/chat/agent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_id: msg?.model || "gpt-4",
+          user_prompt: msg?.prompt || "",
+          editor_context: editorContext,
+          file_context: contextFilesContent,
+          workspace_root: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
+          max_tokens: 4000,
+          temperature: 0.7
+        })
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Backend request failed");
+      }
+
+      const data = await response.json();
+      
+      panel.postMessage({
+        type: "chat:done",
+        text: data.response
+      });
+
+    } catch (error) {
+      console.error("Backend error:", error);
+      panel.postMessage({
+        type: "chat:error",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private async handleAskModeViaBackend(
+    msg: ChatMessage | undefined,
+    panel: vscode.Webview,
+    editorContext: string,
+    contextFilesContent: string
+  ): Promise<void> {
+    const backendUrl = "http://localhost:8000";
+    
+    panel.postMessage({
+      type: "chat:working",
+      message: "Processing your request..."
+    });
+
+    try {
+      const response = await fetch(`${backendUrl}/chat/stream`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

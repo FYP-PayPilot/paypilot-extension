@@ -1,53 +1,70 @@
 import * as vscode from "vscode";
-import express from "express";
+import * as http from "http";
 import * as path from "path";
 import { resolveWorkspaceUri } from "../../utils/workspace";
 
 export class ToolExecutionServer {
-  private app: express.Application;
-  private server: any;
+  private server: http.Server | undefined;
   private port: number = 3001;
 
-  constructor() {
-    this.app = express();
-    this.app.use(express.json({ limit: '50mb' }));
-    
-    // CORS for local backend
-    this.app.use((req, res, next) => {
-      res.header('Access-Control-Allow-Origin', '*');
-      res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
+  constructor() {}
+
+  private setupServer(): http.Server {
+    return http.createServer(async (req, res) => {
+      // CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+      // Handle preflight
       if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
+        res.writeHead(200);
+        res.end();
+        return;
       }
-      next();
-    });
 
-    this.setupRoutes();
-  }
+      // Health check
+      if (req.method === 'GET' && req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: 'ok',
+          workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath
+        }));
+        return;
+      }
 
-  private setupRoutes() {
-    // Health check
-    this.app.get('/health', (req, res) => {
-      res.json({ status: 'ok', workspace: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath });
-    });
-
-    // Main tool execution endpoint
-    this.app.post('/execute-tool', async (req, res) => {
-      const { toolName, toolArgs } = req.body;
-      
-      console.log(`[ToolServer] Executing: ${toolName}`, toolArgs);
-      
-      try {
-        const result = await this.executeToolLocally(toolName, toolArgs);
-        res.json({ success: true, result });
-      } catch (error) {
-        console.error(`[ToolServer] Error:`, error);
-        res.status(500).json({ 
-          success: false, 
-          error: error instanceof Error ? error.message : String(error)
+      // Tool execution endpoint
+      if (req.method === 'POST' && req.url === '/execute-tool') {
+        let body = '';
+        
+        req.on('data', chunk => {
+          body += chunk.toString();
         });
+
+        req.on('end', async () => {
+          try {
+            const { toolName, toolArgs } = JSON.parse(body);
+            console.log(`[ToolServer] Executing: ${toolName}`, toolArgs);
+
+            const result = await this.executeToolLocally(toolName, toolArgs);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true, result }));
+          } catch (error) {
+            console.error(`[ToolServer] Error:`, error);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              success: false,
+              error: error instanceof Error ? error.message : String(error)
+            }));
+          }
+        });
+        return;
       }
+
+      // 404 for unknown routes
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Not found' }));
     });
   }
 
@@ -279,24 +296,22 @@ export class ToolExecutionServer {
     }
 
     return new Promise((resolve, reject) => {
-      try {
-        this.server = this.app.listen(this.port, () => {
-          console.log(`[ToolServer] Running on http://localhost:${this.port}`);
-          resolve();
-        });
-        
-        this.server.on('error', (error: any) => {
-          if (error.code === 'EADDRINUSE') {
-            console.log(`[ToolServer] Port ${this.port} in use, trying ${this.port + 1}`);
-            this.port++;
-            this.start().then(resolve).catch(reject);
-          } else {
-            reject(error);
-          }
-        });
-      } catch (error) {
-        reject(error);
-      }
+      this.server = this.setupServer();
+      
+      this.server.listen(this.port, () => {
+        console.log(`[ToolServer] Running on http://localhost:${this.port}`);
+        resolve();
+      });
+      
+      this.server.on('error', (error: any) => {
+        if (error.code === 'EADDRINUSE') {
+          console.log(`[ToolServer] Port ${this.port} in use, trying ${this.port + 1}`);
+          this.port++;
+          this.start().then(resolve).catch(reject);
+        } else {
+          reject(error);
+        }
+      });
     });
   }
 

@@ -233,7 +233,7 @@ export class MessageHandlerService {
     
     panel.postMessage({
       type: "chat:working",
-      message: "Processing your request..."
+      message: "Analyzing code and preparing changes...",
     });
 
     try {
@@ -279,11 +279,6 @@ private async handleAskModeViaBackend(
   contextFilesContent: string
 ): Promise<void> {
   const backendUrl = "http://localhost:8000";
-  
-  panel.postMessage({
-    type: "chat:working",
-    message: "Processing your request..."
-  });
 
   try {
     const response = await fetch(`${backendUrl}/chat/stream`, {

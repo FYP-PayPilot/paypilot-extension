@@ -272,54 +272,113 @@ export class MessageHandlerService {
     }
   }
 
-  private async handleAskModeViaBackend(
-    msg: ChatMessage | undefined,
-    panel: vscode.Webview,
-    editorContext: string,
-    contextFilesContent: string
-  ): Promise<void> {
-    const backendUrl = "http://localhost:8000";
-    
-    panel.postMessage({
-      type: "chat:working",
-      message: "Processing your request..."
+private async handleAskModeViaBackend(
+  msg: ChatMessage | undefined,
+  panel: vscode.Webview,
+  editorContext: string,
+  contextFilesContent: string
+): Promise<void> {
+  const backendUrl = "http://localhost:8000";
+  
+  panel.postMessage({
+    type: "chat:working",
+    message: "Processing your request..."
+  });
+
+  try {
+    const response = await fetch(`${backendUrl}/chat/stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model_id: msg?.model || "gpt-4",
+        user_prompt: msg?.prompt || "",
+        editor_context: editorContext,
+        file_context: contextFilesContent,
+        workspace_root: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
+        max_tokens: 4000,
+        temperature: 0.7
+      })
     });
 
-    try {
-      const response = await fetch(`${backendUrl}/chat/stream`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model_id: msg?.model || "gpt-4",
-          user_prompt: msg?.prompt || "",
-          editor_context: editorContext,
-          file_context: contextFilesContent,
-          workspace_root: vscode.workspace.workspaceFolders?.[0].uri.fsPath,
-          max_tokens: 4000,
-          temperature: 0.7
-        })
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || "Backend request failed");
-      }
-
-      const data = await response.json();
-      
-      panel.postMessage({
-        type: "chat:done",
-        text: data.response
-      });
-
-    } catch (error) {
-      console.error("Backend error:", error);
-      panel.postMessage({
-        type: "chat:error",
-        error: error instanceof Error ? error.message : String(error)
-      });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Backend request failed");
     }
+
+    // Handle streaming response
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new Error("Response body is not readable");
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullResponse = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      
+      if (done) break;
+      
+      // Decode the chunk and add to buffer
+      buffer += decoder.decode(value, { stream: true });
+      
+      // Process complete lines
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.substring(6).trim();
+          
+          // Check for end of stream
+          if (data === '[DONE]') {
+            panel.postMessage({
+              type: "chat:done",
+              text: fullResponse
+            });
+            return;
+          }
+          
+          // Parse and handle token
+          try {
+            const parsed = JSON.parse(data);
+            
+            if (parsed.error) {
+              throw new Error(parsed.error);
+            }
+            
+            if (parsed.token) {
+              fullResponse += parsed.token;
+              
+              // Send incremental update to webview
+              panel.postMessage({
+                type: "chat:stream",
+                token: parsed.token,
+                fullText: fullResponse
+              });
+            }
+          } catch (e) {
+            console.error("Failed to parse SSE data:", data, e);
+          }
+        }
+      }
+    }
+
+    // If we get here without [DONE], send final message
+    panel.postMessage({
+      type: "chat:done",
+      text: fullResponse
+    });
+
+  } catch (error) {
+    console.error("Backend error:", error);
+    panel.postMessage({
+      type: "chat:error",
+      error: error instanceof Error ? error.message : String(error)
+    });
   }
+}
 
   /**
    * Execute agent mode: loop on tool-capable responses, invoke workspace tools, and track resulting edits.

@@ -14,7 +14,7 @@ const TIMEOUT_MS = 30000;
 /**
  * Get all available language models from FastAPI server
  */
-export async function getAvailableModels(): Promise<ModelInfo[]> {
+export async function getBackendModels(): Promise<ModelInfo[]> {
   try {
     console.log('[PayPilot] Loading available language models from FastAPI server...');
     

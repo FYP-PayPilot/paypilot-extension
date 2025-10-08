@@ -11,7 +11,7 @@ import { ModelInfo } from '../../types/chat';
  * Get all available VS Code language models
  * @returns Promise<ModelInfo[]> Array of available models
  */
-export async function getAvailableModels(): Promise<ModelInfo[]> {
+export async function getVSCodeModels(): Promise<ModelInfo[]> {
   try {
     console.log('[PayPilot] Loading available language models...');
     

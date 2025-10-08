@@ -1,7 +1,8 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getAvailableModels, getLanguageModel } from "../language-model/languageModelService";
+import { getBackendModels, streamChatAgent, streamChatUI } from "../../infrastructure/vscode_http_client";
+import { getVSCodeModels, getLanguageModel } from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
 import { ContextService } from "../context/contextService";
@@ -149,39 +150,76 @@ export class MessageHandlerService {
    */
   private async handleChatAsk(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
     try {
-      
+      const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
+
       // Get the specific language model to use
       let selectedModel: vscode.LanguageModelChat | null = null;
-      if (msg?.model) {
-        selectedModel = await getLanguageModel(msg.model);
-      }
-      
-      if (!selectedModel) {
-        const availableModels = await getAvailableModels();
-        if (availableModels.length === 0) {
-          panel.postMessage({
-            type: "chat:error",
-            error: "No language models available. Please enable Copilot or sign in to VS Code.",
-          });
-          return;
+      let modelId: string | undefined = msg?.model;
+      if (mode === "agent") {
+        // Agent mode: Get VS Code model
+        if (msg?.model) {
+          selectedModel = await getLanguageModel(msg.model);
         }
-        selectedModel = await getLanguageModel(availableModels[0].id);
+        
+        if (!selectedModel) {
+          const vscodeModels = await getVSCodeModels();
+          if (vscodeModels.length === 0) {
+            panel.postMessage({
+              type: "chat:error",
+              error: "No VS Code language models available. Please install a language model extension.",
+            });
+            return;
+          }
+          selectedModel = await getLanguageModel(vscodeModels[0].id);
+          modelId = vscodeModels[0].id;
+        }
+
         if (!selectedModel) {
           panel.postMessage({
             type: "chat:error",
-            error: "Failed to load the fallback language model. Please check your model configuration or sign in to VS Code.",
+            error: "Failed to select a VS Code language model for agent mode.",
           });
           return;
         }
+      } else {
+        // Ask mode: Get backend model ID
+        if (!modelId) {
+          const backendModels = await getBackendModels();
+          if (backendModels.length === 0) {
+            panel.postMessage({
+              type: "chat:error",
+              error: "No language models available from backend. Please ensure the FastAPI server is running.",
+            });
+            return;
+          }
+          modelId = backendModels[0].id;
+        }
       }
+      // if (msg?.model) {
+      //   selectedModel = await getLanguageModel(msg.model);
+      // }
+      // // Get the model ID to use with backend
+      // let modelId: string | undefined = msg?.model;
+      
+      // if (!selectedModel || !modelId) {
+      //   const availableModels = await getAvailableModels();
+      //   if (availableModels.length === 0) {
+      //     panel.postMessage({
+      //       type: "chat:error",
+      //       error: "No language models available from backend. Please ensure the FastAPI server is running.",
+      //     });
+      //     return;
+      //   }
+      //   modelId = availableModels[0].id;
+      // }
 
-      if (!selectedModel) {
-        panel.postMessage({
-          type: "chat:error", 
-          error: "Failed to load the selected language model.",
-        });
-        return;
-      }
+      // if (!selectedModel || !modelId) {
+      //   panel.postMessage({
+      //     type: "chat:error", 
+      //     error: "Failed to select a language model.",
+      //   });
+      //   return;
+      // }
 
       const cfg = vscode.workspace.getConfiguration("paypilot");
       const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
@@ -200,7 +238,7 @@ export class MessageHandlerService {
         contextFilesContent = this.contextService.buildContextContent();
       }
 
-      const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
+      // const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
 
       const composed = this.promptService.composePrompt(
         msg ?? {},
@@ -214,9 +252,9 @@ export class MessageHandlerService {
       this.currentAbortController = abortController;
 
       if (mode === "agent") {
-        await this.handleAgentMode(selectedModel, composed, panel, abortController);
+        await this.handleAgentMode(selectedModel!, composed, panel, abortController);
       } else {
-        await this.handleAskMode(selectedModel, composed, panel, abortController);
+        await this.handleAskMode(modelId!, composed, panel, abortController);
       }
     } catch (error) {
       this.currentAbortController = null;
@@ -400,100 +438,61 @@ export class MessageHandlerService {
   }
 
   /**
-   * Execute ask mode: stream the model's text back to the chat UI.
-   * @param selectedModel The language model to use for the request.
+   * Execute ask mode: stream the model's text back to the chat UI via FastAPI backend.
+   * @param modelId The model ID to use for the backend request.
    * @param composed The fully composed prompt to send to the model.
    * @param panel The webview panel to communicate back to.
    * @param abortController Controller to allow cancellation of the request.
    * @returns Promise that resolves when processing completes.
    */
   private async handleAskMode(
-    selectedModel: vscode.LanguageModelChat,
+    modelId: string,
     composed: string,
     panel: vscode.Webview,
     abortController: AbortController
   ): Promise<void> {
-    console.log("[PayPilot] Starting Ask Mode");
+    console.log("[PayPilot] Starting Ask Mode via FastAPI backend");
 
     const conversation: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(composed),
     ];
     const cancellationTokenSource = new vscode.CancellationTokenSource();
     const { signal } = abortController;
-    const listener = () => cancellationTokenSource.cancel();
-    signal.addEventListener("abort", listener, { once: true });
-
-    const askModeTools = this.getAskModeTools();
-    let aggregatedResponse = "";
-
+    const listener = () => {
+      cancellationTokenSource.cancel();
+    };
+    signal.addEventListener("abort", listener);
+    
     try {
-      while (true) {
-        const requestOptions: vscode.LanguageModelChatRequestOptions = {
-          justification: "PayPilot ask request",
-        };
-        if (askModeTools.length > 0) {
-          requestOptions.tools = askModeTools;
-          requestOptions.toolMode = vscode.LanguageModelChatToolMode.Auto;
-        }
+      // Extract context from the composed prompt
+      const cfg = vscode.workspace.getConfiguration("paypilot");
+      const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
+      const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
+      const fileContext = this.contextService.buildContextContent();
 
-        const response = await selectedModel.sendRequest(
-          conversation,
-          requestOptions,
-          cancellationTokenSource.token
-        );
+      // Stream from FastAPI backend
+      await streamChatUI(
+        modelId,
+        composed,
+        fileContext,
+        editorContext,
+        (token: string) => {
+          // Stream each token to the webview
+          panel.postMessage({ type: "chat:stream", token });
+        },
+        (fullText: string) => {
+          // Send final complete message
+          panel.postMessage({ type: "chat:done", text: fullText });
+        },
+        signal
+      );
 
-        const toolCalls: vscode.LanguageModelToolCallPart[] = [];
-        const textParts: vscode.LanguageModelTextPart[] = [];
-
-        for await (const part of response.stream) {
-          if (cancellationTokenSource.token.isCancellationRequested) {
-            break;
-          }
-
-          if (part instanceof vscode.LanguageModelTextPart) {
-            aggregatedResponse += part.value;
-            textParts.push(part);
-            panel.postMessage({ type: "chat:stream", token: part.value });
-          } else if (part instanceof vscode.LanguageModelToolCallPart) {
-            toolCalls.push(part);
-          }
-        }
-
-        if (cancellationTokenSource.token.isCancellationRequested) {
-          throw new Error("Request cancelled");
-        }
-
-        if (textParts.length > 0) {
-          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
-        }
-
-        if (toolCalls.length === 0) {
-          panel.postMessage({ type: "chat:done", text: aggregatedResponse });
-          break;
-        }
-
-        for (let index = 0; index < toolCalls.length; index += 1) {
-          const call = toolCalls[index];
-          try {
-            const resultPart = await this.invokeToolCall(call, panel);
-            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
-            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
-            const hasMoreCalls = index < toolCalls.length - 1;
-            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
-          } catch (toolError) {
-            console.error("[PayPilot] Tool invocation failed in ask mode", toolError);
-            panel.postMessage({
-              type: "chat:error",
-              error:
-                toolError instanceof Error ? toolError.message : String(toolError),
-            });
-            return;
-          }
-        }
-      }
     } catch (chatError) {
-      if (!(chatError instanceof Error && chatError.message === "Request cancelled")) {
-        console.error("Error in chat mode:", chatError);
+      if (signal.aborted || (chatError instanceof Error && chatError.message === "Request cancelled")) {
+        console.log("[PayPilot] Ask mode cancelled by user");
+        panel.postMessage({ type: "chat:stopped" });
+      } else {
+        console.error("Error in ask mode:", chatError);
         panel.postMessage({
           type: "chat:error",
           error: chatError instanceof Error ? chatError.message : String(chatError),

@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./features/chat/messageHandlerService";
 import { registerPaypilotTools } from "./tools";
+import { getWebviewHtml } from "./infrastructure/htmlService";
 
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
 

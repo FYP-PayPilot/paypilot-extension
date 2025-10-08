@@ -1,187 +1,120 @@
-# PayPilot - VS Code AI Assistant Extension
+# PayPilot – VS Code AI Assistant Extension
 
-An AI-powered coding assistant that integrates with VS Code's Language Model API to provide intelligent code suggestions through a chat interface with real-time streaming responses.
+PayPilot delivers a Copilot-style chat experience inside a dedicated sidebar. The extension streams responses from any language model exposed through VS Code's `vscode.lm` API, can apply the model’s edits directly to your workspace, and keeps review tooling (diffs, status-bar actions) in sync with what changed.
 
-## 🏗️ Architecture Overview
+## Domain-Oriented Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    VS Code Extension Host                   │ ← Node.js Environment
-│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────┐│
-│  │   extension.ts  │←→│ ChatViewProvider │←→│languageModel││
-│  │  (Entry Point)  │  │   (Bridge)       │  │ (VS Code API││
-│  │                 │  │                  │  │  Integration)││
-│  └─────────────────┘  └──────────────────┘  └─────────────┘│
-└─────────────────────────────────────────────────────────────┘
-                              ↕ postMessage API
-┌─────────────────────────────────────────────────────────────┐
-│                      Webview (Browser)                     │ ← React App
-│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────┐│
-│  │   React App     │←→│   VSCodeContext  │←→│ Chat UI     ││
-│  │  (UI Layer)     │  │  (Communication) │  │ (Streaming) ││
-│  └─────────────────┘  └──────────────────┘  └─────────────┘│
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│ VS Code Extension Host (Node runtime)                               │
+│ ┌───────────────┐        ┌───────────────────────────────────────┐ │
+│ │ extension.ts  │ ─────▶ │ Chat Domain                           │ │
+│ │ activation &  │        │  MessageHandlerService                │ │
+│ │ command setup │        │  PromptService / ChatHistoryService   │ │
+│ └───────────────┘        └───────────────────────────────────────┘ │
+│             │                             │                         │
+│             ▼                             ▼                         │
+│    ┌─────────────────┐        ┌───────────────────────────────┐     │
+│    │ Diff Domain     │        │ Context Domain               │     │
+│    │  DiffService    │        │  ContextService              │     │
+│    │  StatusBar      │        │  ContextMessageService       │     │
+│    │  Original Docs  │        └───────────────────────────────┘     │
+│    └─────────────────┘                             │                │
+│             │                                     ▼                │
+│             ▼                             ┌────────────────────┐    │
+│    ┌─────────────────┐        ┌────────── │ Language Model     │    │
+│    │ File-Mod Domain │        │           │  languageModelSvc  │    │
+│    │  FileModificationService│           │  ModelMessageSvc   │    │
+│    └─────────────────┘        │           └────────────────────┘    │
+│                               │                     │              │
+│                               ▼                     ▼              │
+│                    ┌─────────────────┐     ┌─────────────────┐      │
+│                    │ MCP Domain      │     │ Infrastructure   │      │
+│                    │  McpService     │     │  htmlService     │      │
+│                    │  McpMessageSvc  │     └─────────────────┘      │
+│                    └─────────────────┘                               │
+└─────────────────────────────────────────────────────────────────────┘
+                     ▲ webview.postMessage / onDidReceiveMessage ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Webview (React app, browser runtime)                                │
+│  VSCodeContext ➝ Chat UI components ➝ Streaming render pipeline     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-## 📁 Project Structure & File Relationships
+Each folder under `src/features` represents a domain module that owns its logic (`Service` files) and any chat/webview bridge responsible for messaging (`*MessageService` files). Shared utilities live in `src/infrastructure`, while panel wiring remains in `src/panels`.
 
-### **Extension Core (Node.js Environment)**
-- **[`src/extension.ts`](src/extension.ts)** - Main entry point, registers chat panel and commands
-  - Uses: `vscode.window.registerWebviewViewProvider()`, `vscode.commands.registerCommand()`
-  - Handles: AI requests, diff management, status bar buttons
-  - Connects to: [`ChatViewProvider`](src/panels/ChatViewProvider.ts), [`languageModel`](src/services/languageModel.ts)
+## Feature Breakdown
 
-- **[`src/panels/ChatViewProvider.ts`](src/panels/ChatViewProvider.ts)** - Webview container and message router
-  - Uses: `vscode.WebviewView`, `webview.asWebviewUri()`, `webview.postMessage()`
-  - Handles: HTML generation, React app loading, extension ↔ webview communication
-  - Connects to: [`html.ts`](src/services/html.ts), receives messages from React app
+### Chat Domain (`src/features/chat`)
+- `messageHandlerService.ts`: Central coordinator that routes webview events, composes prompts, triggers edits, and orchestrates other domains. **VS Code APIs:** `vscode.Memento`, `vscode.workspace.getConfiguration`, `vscode.CancellationTokenSource`, `vscode.Webview.postMessage`, `vscode.window.showInformationMessage`, `vscode.window.showWarningMessage`.
+- `promptService.ts`: Builds prompts for *ask* and *agent* modes. Pure string composition.
+- `chatHistoryService.ts`: Placeholder in-memory session list for future persistence.
 
-- **[`src/services/languageModel.ts`](src/services/languageModel.ts)** - VS Code Language Model API integration
-  - Uses: `vscode.lm.selectChatModels()`, `model.sendRequest()`, streaming via `response.text`
-  - Handles: Model discovery, AI requests with proper error handling
-  - Provides: Available models list, streaming responses to extension
+### Diff Domain (`src/features/diff`)
+- `diffService.ts`: Tracks AI-modified files, presents diffs, and keeps workspace state in sync. **VS Code APIs:** `vscode.workspace.registerTextDocumentContentProvider`, `vscode.window.onDidChangeActiveTextEditor`, `vscode.commands.executeCommand('vscode.diff')`, `vscode.window.tabGroups`, `vscode.window.showInformationMessage`, `vscode.window.showWarningMessage`, `vscode.workspace.openTextDocument`, `vscode.WorkspaceEdit`, `vscode.Range`, `vscode.workspace.applyEdit`, `vscode.Uri.file`.
+- `originalContentProvider.ts`: Implements `vscode.TextDocumentContentProvider` so diff editors can show captured baselines.
+- `statusBarService.ts`: Renders Accept/Reject/Keep/Undo/View Diff buttons when tracked changes exist. **VS Code APIs:** `vscode.window.createStatusBarItem`, `vscode.StatusBarAlignment`, `vscode.ThemeColor`.
 
-- **[`src/services/html.ts`](src/services/html.ts)** - Secure HTML document generator
-  - Uses: Content Security Policy, nonce-based script loading
-  - Handles: Webview HTML structure, CSS embedding, React mounting point
-  - Provides: Complete HTML document with `<div id="root">` for React
+### Context Domain (`src/features/context`)
+- `contextService.ts`: Manages context files chosen by the user, including workspace discovery and external file browsing. **VS Code APIs:** `vscode.workspace.findFiles`, `vscode.workspace.getWorkspaceFolder`, `vscode.workspace.asRelativePath`, `vscode.window.showQuickPick`, `vscode.window.showOpenDialog`, `vscode.workspace.fs.readFile`, `vscode.workspace.fs.stat`.
+- `contextMessageService.ts`: Bridges chat requests (add/remove/clear/context pickup) to `ContextService` and forwards results.
 
-### **Webview App (Browser Environment)**
-- **[`src/webview/index.tsx`](src/webview/index.tsx)** - React entry point
-  - Uses: `ReactDOM.createRoot()`, finds `#root` element from HTML
-  - Handles: React app initialization and mounting
-  - Connects to: [`App.tsx`](src/webview/App.tsx)
+### Language Model Domain (`src/features/language-model`)
+- `languageModelService.ts`: Discovers available models and streams responses using the Language Model API. **VS Code APIs:** `vscode.lm.selectChatModels`, `vscode.LanguageModelChatMessage.User`, `vscode.LanguageModelChat.sendRequest`, `vscode.CancellationTokenSource`.
+- `modelMessageService.ts`: Returns model lists to the webview and logs model switches.
 
-- **[`src/webview/App.tsx`](src/webview/App.tsx)** - Root React component
-  - Provides: [`VSCodeProvider`](src/webview/context/VSCodeContext.tsx) context wrapper
-  - Renders: Main [`Chat`](src/webview/components/chat/Chat.tsx) interface
+### MCP Domain (`src/features/mcp`)
+- `mcpService.ts`: Ensures the recommended Context7 MCP server is configured and exposes registered servers. **VS Code APIs:** `vscode.workspace.getConfiguration`, `vscode.ConfigurationTarget.Global`.
+- `mcpMessageService.ts`: Toggles MCP participation and sends server details back to the UI when requested.
 
-- **[`src/webview/context/VSCodeContext.tsx`](src/webview/context/VSCodeContext.tsx)** - Extension communication layer
-  - Uses: `window.acquireVsCodeApi()`, `vscode.postMessage()`, `window.addEventListener('message')`
-  - Handles: Bidirectional messaging between React and extension
-  - Provides: `postMessage()` and `onMessage()` to React components
+### Infrastructure (`src/infrastructure`)
+- `htmlService.ts`: Generates the webview HTML shell with CSP, nonces, and embedded CSS. **VS Code APIs:** `webview.cspSource`, `webview.asWebviewUri`, `vscode.Uri.joinPath`.
 
-- **[`src/webview/hooks/useChat.ts`](src/webview/hooks/useChat.ts)** - Chat state management
-  - Uses: VSCodeContext for messaging
-  - Handles: Message history, streaming responses, loading states
-  - Connects to: Chat components for UI updates
+### Panel & Webview
+- `src/panels/ChatViewProvider.ts`: Hosts the sidebar webview and wires message passing. **VS Code APIs:** `vscode.WebviewViewProvider`, `webview.asWebviewUri`, `webview.onDidReceiveMessage`, `webview.postMessage`.
+- `src/webview/**`: React application that renders the chat UI, handles streaming, and surfaces status updates. `VSCodeContext.tsx` calls `window.acquireVsCodeApi()`; hooks/components consume that channel.
 
-### **Build System**
-- **[`esbuild.js`](esbuild.js)** - Dual build configuration
-  - **Extension bundle**: `src/extension.ts` → `dist/extension.js` (Node.js/CommonJS)
-  - **Webview bundle**: `src/webview/index.tsx` → `dist/media/webview.js` (Browser/IIFE)
-  - **Features**: React JSX transform, file watching, media copying
+## Cross-Domain Message Flow
 
-- **[`.vscode/tasks.json`](.vscode/tasks.json)** - Development workflow
-  - **`watch`**: Parallel TypeScript checking + esbuild bundling
-  - **Background tasks**: Continuous rebuilding on file changes
+### Ask Mode (analysis only)
+1. Webview sends `{ type: 'chat:ask', mode: 'ask', ... }` through `VSCodeContext`.
+2. `MessageHandlerService` composes the prompt via `PromptService`, sends the request with tool support, and forwards streamed tokens to the webview as `chat:stream`.
+3. The final response arrives as `chat:response`. No file modifications occur, so the Diff domain remains idle.
 
-## 🔄 Message Flow Architecture
+### Agent Mode (code edits)
+1. Webview includes `mode: 'agent'` plus optional context file hints.
+2. `MessageHandlerService` gathers editor context (`ContextService`), sends tool-enabled chat requests, and responds to tool calls (`paypilot-…`) by invoking `vscode.lm.invokeTool`.
+3. Tool executions perform the requested filesystem changes and emit `chat:code-applied` updates back to the webview.
+4. `DiffService.trackModifiedFiles` snapshots originals and refreshes status-bar controls via `StatusBarService`.
+5. Accept/Reject/Keep/Undo commands (triggered via status bar or command palette) call `diffService` methods to manage the tracked files.
 
-### **Chat Request Flow**
-```
-User Input → ChatInput → useChat → VSCodeContext → ChatViewProvider 
-    ↓
-extension.ts → languageModel.ts → VS Code LM API → Streaming Response
-    ↓
-ChatViewProvider → VSCodeContext → useChat → Chat UI Update
-```
+## VS Code API Inventory (by module)
 
-### **Key Message Types** ([`src/types/chat.ts`](src/types/chat.ts))
-```typescript
-// Webview → Extension
-interface ChatAskMessage {
-  type: 'chat:ask';
-  prompt: string;
-  mode: 'agent' | 'ask';  // agent = code changes, ask = Q&A
-  model: string;
-}
+| Domain / Area | Files | Key APIs |
+| --- | --- | --- |
+| Activation & panel | `src/extension.ts`, `src/panels/ChatViewProvider.ts` | `window.registerWebviewViewProvider`, `commands.registerCommand`, `commands.executeCommand`, `lm.onDidChangeChatModels`, `webview.postMessage`, `Uri.joinPath` |
+| Chat orchestration | `src/features/chat/messageHandlerService.ts` | `Memento`, `workspace.getConfiguration`, `CancellationTokenSource`, `window.showInformationMessage`, `window.showWarningMessage`, `Webview.postMessage` |
+| Language models | `src/features/language-model/languageModelService.ts` | `lm.selectChatModels`, `LanguageModelChatMessage.User`, `LanguageModelChat.sendRequest`, `CancellationTokenSource` |
+| Context capture | `src/features/context/contextService.ts` | `workspace.findFiles`, `window.showQuickPick`, `window.showOpenDialog`, `workspace.fs.readFile`, `workspace.fs.stat`, `workspace.asRelativePath` |
+| LLM tools | `src/tools.ts`, `src/utils/workspace.ts` | `lm.registerTool`, `lm.invokeTool`, `workspace.fs.writeFile`, `workspace.fs.delete`, `workspace.findFiles` |
+| Diff & review | `src/features/diff/diffService.ts`, `src/features/diff/originalContentProvider.ts`, `src/features/diff/statusBarService.ts` | `workspace.registerTextDocumentContentProvider`, `commands.executeCommand('vscode.diff')`, `window.tabGroups`, `window.createStatusBarItem`, `ThemeColor` |
+| MCP integration | `src/features/mcp/mcpService.ts`, `src/features/mcp/mcpMessageService.ts` | `workspace.getConfiguration`, `ConfigurationTarget.Global`, `Webview.postMessage` |
+| Webview HTML | `src/infrastructure/htmlService.ts` | `webview.cspSource`, `webview.asWebviewUri`, `Uri.joinPath` |
 
-// Extension → Webview  
-interface ChatStreamMessage {
-  type: 'chat:stream';
-  token: string;  // Real-time AI response tokens
-}
-
-interface ChatCodeAppliedMessage {
-  type: 'chat:code-applied';  // After code is applied to file
-  fileName: string;
-  linesAdded: number;
-  linesDeleted: number;
-}
-```
-
-## 🛠️ VS Code APIs Usage
-
-| API | Purpose | File |
-|-----|---------|------|
-| `vscode.window.registerWebviewViewProvider()` | Create sidebar panel | [`extension.ts`](src/extension.ts) |
-| `vscode.lm.selectChatModels()` | Discover available models | [`languageModel.ts`](src/services/languageModel.ts) |
-| `model.sendRequest()` | Send AI requests | [`languageModel.ts`](src/services/languageModel.ts) |
-| `vscode.TextEditor.edit()` | Apply code changes | [`extension.ts`](src/extension.ts) |
-| `vscode.commands.executeCommand('vscode.diff')` | Show diff view | [`extension.ts`](src/extension.ts) |
-| `vscode.scm.createSourceControl()` | Diff gutter indicators | [`extension.ts`](src/extension.ts) |
-| `vscode.window.createStatusBarItem()` | Diff action buttons | [`extension.ts`](src/extension.ts) |
-| `webview.asWebviewUri()` | Secure resource URIs | [`ChatViewProvider.ts`](src/panels/ChatViewProvider.ts) |
-| `window.acquireVsCodeApi()` | Webview communication | [`VSCodeContext.tsx`](src/webview/context/VSCodeContext.tsx) |
-
-## 🎯 Core Features
-
-### **AI Integration**
-- **Model Support**: VS Code Language Models (GPT-4o, Claude, etc.)
-- **Streaming**: Real-time token-by-token responses
-- **Context**: Includes current file content in prompts
-- **Modes**: Agent (code changes) vs Ask (Q&A)
-
-### **Code Application & Diff**
-- **Auto-apply**: Extracts code from AI responses and applies to files
-- **Diff View**: Side-by-side comparison using VS Code's native diff editor
-- **Gutter Indicators**: Green/red line markers showing changes
-- **Actions**: Accept/Reject changes via status bar buttons
-
-### **Security**
-- **Webview Sandbox**: CSP protection, nonce-based script loading
-- **No External APIs**: Uses only VS Code's built-in Language Model API
-- **Secure Storage**: API keys stored in VS Code's secret storage
-
-## 🚀 Development Setup
+## Development
 
 ```bash
-# Install dependencies
-npm install
+npm install            # install dependencies
 
-# Start development (runs both TypeScript compiler and bundler)
-npm run watch
+npm run watch          # watch-mode build for extension + webview bundles
+# or run the individual tasks
+npm run watch:tsc      # incremental type-checking
+npm run watch:esbuild  # incremental bundling
 
-# Or run separately:
-npm run watch:tsc     # TypeScript type checking
-npm run watch:esbuild # JavaScript bundling
-
-# Launch Extension Development Host
-# Press F5 in VS Code
+# Launch the Extension Development Host from VS Code (F5)
 ```
 
-### **Development Workflow**
-1. **Save any file** → Triggers rebuild (< 100ms)
-2. **TypeScript errors** → Problems panel
-3. **Extension reload** → `Ctrl+R` in development host
-4. **Debug extension** → Set breakpoints in TypeScript files
-5. **Debug webview** → `Ctrl+Shift+I` in chat panel
-
-## 📦 Key Dependencies
-
-- **Runtime**: `react`, `react-dom`, `react-icons`
-- **Build**: `esbuild`, `typescript`, `eslint`
-- **VS Code**: `@types/vscode` (^1.88.0 for Language Model API)
-
-## 🔧 Extension Points
-
-### **Adding New Message Types**
-1. Define in [`types/chat.ts`](src/types/chat.ts)
-2. Handle in [`extension.ts`](src/extension.ts) message handler
-3. Send from React via [`useChat.ts`](src/webview/hooks/useChat.ts)
-
-### **Adding New Commands**
-1. Register in [`package.json`](package.json) `contributes.commands`
-2. Implement in [`extension.ts`](src/extension.ts) `activate()`
-3. Add to `context.subscriptions`
+Tips:
+- Bundles emit to `dist/extension.js` (extension host) and `dist/media/` (webview assets).
+- Use **Developer: Open Webview Developer Tools** inside the chat sidebar to debug the React app.
+- Diff/status commands are available via the command palette (`paypilot.*`) and from the status bar while the chat panel is open.

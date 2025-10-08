@@ -3,6 +3,8 @@ import { useChat } from '../../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ContextList } from './ContextList';
+import { ChatControls } from './ChatControls';
+import { ChatHistoryModal } from './ChatHistoryModal';
 
 /**
  * Main chat component that orchestrates the entire chat interface
@@ -21,7 +23,22 @@ export const Chat: React.FC = () => {
     contextFiles,
     handleAddContext,
     removeContextFile,
-    clearAllContext
+    clearAllContext,
+    mcpEnabled,
+    onMcpToggle,
+    mcpServers,
+    selectedServers,
+    onServerSelection,
+    onMcpInfo,
+    handleNewChat,
+    handleChatHistory,
+    showHistoryModal,
+    setShowHistoryModal,
+    getChatHistory,
+    chatHistory,
+    handleLoadChat,
+    handleDeleteChat,
+    cleanupDuplicateHistory
   } = useChat();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -35,6 +52,13 @@ export const Chat: React.FC = () => {
 
   return (
     <div className="chat-container">
+      {/* Chat Controls */}
+      <ChatControls 
+        onNewChat={handleNewChat}
+        onChatHistory={handleChatHistory}
+        disabled={isLoading}
+      />
+
       {/* Messages area */}
       <div className="messages-container">
         {messages.length === 0 ? (
@@ -78,8 +102,24 @@ export const Chat: React.FC = () => {
           availableModels={availableModels}
           contextFiles={contextFiles}
           onAddContext={handleAddContext}
+          mcpEnabled={mcpEnabled}
+          onMcpToggle={onMcpToggle}
+          mcpServers={mcpServers}
+          selectedServers={selectedServers}
+          onServerSelection={onServerSelection}
+          onMcpInfo={onMcpInfo}
         />
       </div>
+
+      {/* Chat History Modal */}
+      <ChatHistoryModal
+        isOpen={showHistoryModal}
+        onClose={() => setShowHistoryModal(false)}
+        chatHistory={chatHistory}
+        onLoadChat={handleLoadChat}
+        onDeleteChat={handleDeleteChat}
+        onCleanupDuplicates={cleanupDuplicateHistory}
+      />
     </div>
   );
 };

@@ -3,9 +3,9 @@ import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
 import { ContextButton } from './ContextButton';
 import { IoSend, IoStop } from 'react-icons/io5';
-import { HiSparkles, HiChevronDown } from 'react-icons/hi2';
+import { HiSparkles, HiChevronDown, HiInformationCircle } from 'react-icons/hi2';
 import { BsQuestionLg } from 'react-icons/bs';
-import { ModelInfo, ContextFile } from '../../../types/chat';
+import { ModelInfo, ContextFile, McpServer } from '../../../types/chat';
 
 interface ChatInputProps {
   onSendMessage: (message: string, mode: 'agent' | 'ask') => void;
@@ -19,6 +19,12 @@ interface ChatInputProps {
   availableModels: ModelInfo[];
   contextFiles: ContextFile[];
   onAddContext: () => void;
+  mcpEnabled: boolean;
+  onMcpToggle: (enabled: boolean) => void;
+  mcpServers: McpServer[];
+  selectedServers: string[];
+  onServerSelection: (servers: string[]) => void;
+  onMcpInfo: () => void;
 }
 
 /**
@@ -35,7 +41,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onModelChange,
   availableModels,
   contextFiles,
-  onAddContext
+  onAddContext,
+  mcpEnabled,
+  onMcpToggle,
+  mcpServers,
+  selectedServers,
+  onServerSelection,
+  onMcpInfo
 }) => {
   const [inputValue, setInputValue] = useState('');
 
@@ -75,8 +87,50 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  /**
+   * Handle MCP server selection toggle
+   */
+  const handleServerToggle = (serverName: string) => {
+    const newSelection = selectedServers.includes(serverName)
+      ? selectedServers.filter(s => s !== serverName)
+      : [...selectedServers, serverName];
+    onServerSelection(newSelection);
+  };
+
+  const getSuggestedPrompt = () => {
+    return mode === 'ask' 
+      ? 'Explain the code'
+      : 'Help me to integrate paypal services into my code';
+  };
+
+  const handleSuggestedPromptClick = () => {
+    if (!disabled) {
+      setInputValue(getSuggestedPrompt());
+    }
+  };
+
   return (
     <div className="chat-input">
+      {/* Add Context button - moved above input */}
+      <div className="context-button-row">
+        <ContextButton 
+          onClick={onAddContext}
+          disabled={disabled}
+        />
+      </div>
+
+      {/* Suggested Prompt Row */}
+      <div className="suggested-prompt-row">
+        <button
+          className="suggested-prompt-button"
+          onClick={handleSuggestedPromptClick}
+          disabled={disabled}
+          type="button"
+        >
+          {getSuggestedPrompt()}
+        </button>
+      </div>
+
       {/* Input row */}
       <div className="input-row">
         <div className="input-wrapper">
@@ -94,14 +148,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <span>Press ⌘+Enter to send</span>
             </div>
           )}
-        </div>
-        
-        {/* Add Context button */}
-        <div className="context-button-container">
-          <ContextButton 
-            onClick={onAddContext}
-            disabled={disabled}
-          />
         </div>
       </div>
 
@@ -153,6 +199,44 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <div className="selector-display">
                 <span className="selector-text">
                   {getModelDisplayName(selectedModel)}
+                </span>
+                <span className="selector-chevron">
+                  <HiChevronDown />
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* MCP Selector */}
+          <div className="selector-item">
+            <div className="selector-wrapper">
+              <select
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) {
+                    handleServerToggle(e.target.value);
+                    e.target.value = ""; // Reset select
+                  }
+                }}
+                title="Select MCP servers"
+                className="footer-select"
+              >
+                <option value="">Select MCP servers...</option>
+                {mcpServers.map((server) => (
+                  <option key={server.name} value={server.name}>
+                    {selectedServers.includes(server.name) ? '✓ ' : ''}{server.name} ({server.type})
+                  </option>
+                ))}
+                {mcpServers.length === 0 && (
+                  <option value="" disabled>No MCP servers configured</option>
+                )}
+              </select>
+              <div className="selector-display">
+                <span className="selector-icon">
+                  <HiInformationCircle />
+                </span>
+                <span className="selector-text">
+                  MCP ({selectedServers.length}/{mcpServers.length})
                 </span>
                 <span className="selector-chevron">
                   <HiChevronDown />

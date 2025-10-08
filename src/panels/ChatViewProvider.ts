@@ -1,35 +1,52 @@
-import * as vscode from 'vscode';
-import { getWebviewHtml } from '../services/html';
-
-/**
- * Webview provider for the PayPilot chat interface.
- * Bridges VS Code extension APIs with React chat UI.
+/** ChatViewProvider.ts (sourced from below link with modifications)
+ * https://github.com/microsoft/vscode-extension-samples/blob/main/webview-view-sample/src/extension.ts
  */
+
+import * as vscode from 'vscode';
+import { getWebviewHtml } from '../infrastructure/htmlService';
+
+/*
+* ChatViewProvider implements a VS Code WebviewViewProvider to host the React chat panel.
+* It sets up the webview, handles message routing between the extension and React app,
+* and manages visibility state changes.
+*/
 export class ChatViewProvider implements vscode.WebviewViewProvider {
+  
   private _view?: vscode.WebviewView;
-  private listeners: Array<(msg: any, panel: vscode.Webview) => void> = [];
+
+  // callback function that handles messages sent from react webview to the extension
+  private messageHandler?: (msg: any, panel: vscode.Webview) => void;
+  
+  // callback function to notify when panel visibility changes
   private visibilityChangeCallback?: (visible: boolean) => void;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
   /**
    * Set callback for when panel visibility changes
+   * @param callback function to call on visibility change
+   * @returns void
    */
-  onVisibilityChange(callback: (visible: boolean) => void) {
+  public onVisibilityChange(callback: (visible: boolean) => void) {
     this.visibilityChangeCallback = callback;
   }
 
   /**
    * Configures webview with React app and sets up message routing.
    * Called by VS Code when the chat panel is opened.
+   * @param webviewView The webview view provided by VS Code
+   * @param _context Additional context (not used)
+   * @param _token Cancellation token (not used)
    */
-  resolveWebviewView(
+  public resolveWebviewView(
     webviewView: vscode.WebviewView,
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
-    this._view = webviewView;
-    const webview = webviewView.webview;
+
+    this._view = webviewView; // webviewView is the container that holds the webview (picture frame)
+
+    const webview = webviewView.webview; // webview is the actual content area where React app runs (the actual picture)
 
     // Track visibility changes
     webviewView.onDidChangeVisibility(() => {
@@ -51,7 +68,7 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       localResourceRoots: [this.context.extensionUri]
     };
 
-    // Generate secure URIs for React bundle
+    // Generate secure URIs for React bundle to load within sandboxed webview
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'media', 'webview.js')
     );
@@ -60,28 +77,31 @@ export class ChatViewProvider implements vscode.WebviewViewProvider {
       vscode.Uri.joinPath(this.context.extensionUri, 'dist', 'media', 'global.css')
     );
 
-    // Generate HTML document for React app
+    // Generate HTML document for React app and pass in secure URIs
     webview.html = getWebviewHtml(webview, this.context.extensionUri, { scriptUri, styleUri });
 
-    // Route messages from React to registered listeners
+    // Route messages from React to the registered handler
     webview.onDidReceiveMessage((msg) => {
-      this.listeners.forEach(l => l(msg, webview));
+      this.messageHandler?.(msg, webview);
     });
   }
 
   /**
    * Registers message listener for webview communication.
    * Used by extension.ts to handle chat requests and other UI events.
+   * @param listener Function to handle incoming messages
+   * @returns void
    */
-  onMessage(listener: (msg: any, panel: vscode.Webview) => void) {
-    this.listeners.push(listener);
+  public onMessage(listener: (msg: any, panel: vscode.Webview) => void) {
+    this.messageHandler = listener;
   }
 
   /**
    * Sends messages from extension to React UI.
    * Safe to call even if webview is not initialized.
+   * @param message Message object to send to webview
    */
-  postMessage(message: any) {
+  public postMessage(message: any) {
     this._view?.webview.postMessage(message);
   }
 }

@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { ChatMessage as ChatMessageType } from '../../../types/chat';
 import { CodeAppliedCard } from './CodeAppliedCard';
+import { ToolActivityCard } from './ToolActivityCard';
+import { MultiFileEditSummary } from './MultiFileEditSummary';
 import { useVSCode } from '../../context/VSCodeContext';
 
 interface ChatMessageProps {
@@ -235,7 +237,35 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
           linesAdded={message.codeApplied.linesAdded}
           linesDeleted={message.codeApplied.linesDeleted}
           explanation={message.codeApplied.explanation}
+          operation={message.codeApplied.operation}
           onCardClick={handleFileClick}
+        />
+      </div>
+    );
+  }
+
+  if (message.toolActivity) {
+    return (
+      <div className="message message-assistant">
+        <ToolActivityCard
+          title={message.toolActivity.title}
+          detail={message.toolActivity.detail}
+          filePath={message.toolActivity.filePath}
+          operation={message.toolActivity.operation}
+          onCardClick={handleFileClick}
+        />
+      </div>
+    );
+  }
+
+  if (message.multiFileEditSummary) {
+    return (
+      <div className="message message-assistant">
+        <MultiFileEditSummary
+          changes={message.multiFileEditSummary.changes}
+          totalLinesAdded={message.multiFileEditSummary.totalLinesAdded}
+          totalLinesDeleted={message.multiFileEditSummary.totalLinesDeleted}
+          onFileClick={handleFileClick}
         />
       </div>
     );

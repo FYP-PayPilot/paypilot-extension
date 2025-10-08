@@ -56,6 +56,27 @@ export interface ContextClearMessage {
   type: 'context:clear';
 }
 
+/** Sent from ChatInput MCP checkbox to toggle MCP functionality */
+export interface McpToggleMessage {
+  type: 'mcp:toggle';
+  enabled: boolean;
+}
+
+/** Sent from ChatInput to request available MCP servers */
+export interface GetMcpServersMessage {
+  type: "mcp:get";
+}
+
+/** Sent when user wants to start a new chat session */
+export interface NewChatMessage {
+  type: "chat:new";
+}
+
+/** Sent when user wants to view chat history */
+export interface ChatHistoryMessage {
+  type: "chat:history";
+}
+
 /** Union type used in VSCodeContext for type-safe message routing */
 export type WebviewToExtensionMessage =
   | ChatAskMessage
@@ -66,7 +87,11 @@ export type WebviewToExtensionMessage =
   | ContextRequestMessage
   | ContextAddMessage
   | ContextRemoveMessage
-  | ContextClearMessage;
+  | ContextClearMessage
+  | McpToggleMessage
+  | GetMcpServersMessage
+  | NewChatMessage
+  | ChatHistoryMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
@@ -111,6 +136,41 @@ export interface ChatCodeAppliedMessage {
   linesAdded: number;
   linesDeleted: number;
   explanation: string;
+  operation: 'create' | 'update' | 'delete';
+}
+
+export interface ChatToolActivityMessage {
+  type: 'chat:tool-activity';
+  title: string;
+  detail?: string;
+  filePath?: string;
+  operation?: string;
+}
+
+export interface ChatAgentSummaryMessage {
+  type: 'chat:agent-summary';
+  text: string;
+}
+
+export interface FileChange {
+  fileName: string;
+  filePath: string;
+  operation:
+    | "create"
+    | "update"
+    | "delete"
+    | "directory"
+    | "directory-delete"
+    | "read";
+  linesAdded?: number;
+  linesDeleted?: number;
+}
+
+export interface ChatMultiFileEditSummaryMessage {
+  type: "chat:multi-file-edit-summary";
+  changes: FileChange[];
+  totalLinesAdded: number;
+  totalLinesDeleted: number;
 }
 
 /** Sent to update context files list in UI */
@@ -131,6 +191,12 @@ export interface ContextFilePickerMessage {
   // No additional data needed - this triggers the file picker
 }
 
+/** Response with available MCP servers */
+export interface McpServersResponse {
+  type: 'mcp:servers';
+  servers: McpServer[];
+}
+
 /** Union type used in VSCodeContext for type-safe message routing */
 export type ExtensionToWebviewMessage =
   | ChatStreamMessage
@@ -140,9 +206,13 @@ export type ExtensionToWebviewMessage =
   | ModelListMessage
   | ChatWorkingMessage
   | ChatCodeAppliedMessage
+  | ChatToolActivityMessage
+  | ChatAgentSummaryMessage
+  | ChatMultiFileEditSummaryMessage
   | ContextListMessage
   | ContextAddResponseMessage
-  | ContextFilePickerMessage;
+  | ContextFilePickerMessage
+  | McpServersResponse;
 
 /** Used in ChatInput dropdown and languageModel service */
 export interface ModelInfo {
@@ -154,6 +224,15 @@ export interface ModelInfo {
   maxTokens?: number; // Maximum context length
   description?: string; // Optional description
   isExternal: boolean; // True for external APIs, false for VS Code built-in
+}
+
+/** MCP Server configuration used in MCP functionality */
+export interface McpServer {
+  name: string;
+  type: string;
+  url?: string;
+  command?: string;
+  args?: string[];
 }
 
 // Context file information
@@ -179,6 +258,18 @@ export interface ChatMessage {
     linesAdded: number;
     linesDeleted: number;
     explanation: string;
+    operation: 'create' | 'update' | 'delete';
+  };
+  toolActivity?: {
+    title: string;
+    detail?: string;
+    filePath?: string;
+    operation?: string;
+  };
+  multiFileEditSummary?: {
+    changes: FileChange[];
+    totalLinesAdded: number;
+    totalLinesDeleted: number;
   };
 }
 
@@ -188,4 +279,31 @@ export interface ChatState {
   isLoading: boolean;                  // True during active AI generation
   mode: 'agent' | 'ask';              // Current interaction mode
   contextFiles: ContextFile[];        // Files added for context
+}
+
+/** Summary info for chat sessions - used in ChatHistoryService and ChatHistoryPanel
+ * When persistent storage is added this will be expanded to include timestamps, etc.
+ * For now it's just an in-memory list so the rest of the system has a consistent seam to call into.
+ * When real persistence is added this class will own it.
+ */
+export interface ChatSessionSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+}
+
+/** Interface for messages sent between webview and extension
+ * Used in MessageHandlerService and VSCodeContext for type-safe routing
+ */
+export interface ChatMessage {
+  type?: string;
+  prompt?: string;
+  mode?: string;
+  model?: string;
+  contextFiles?: Array<{ filePath: string }>;
+  filePaths?: string[];
+  filePath?: string;
+  title?: string;
+  enabled?: boolean;
+  [key: string]: unknown;
 }

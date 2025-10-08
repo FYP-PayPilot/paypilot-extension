@@ -6,6 +6,7 @@ interface CodeAppliedCardProps {
   linesAdded: number;
   linesDeleted: number;
   explanation: string;
+  operation: 'create' | 'update' | 'delete';
   onCardClick?: (filePath: string) => void;
 }
 
@@ -15,6 +16,7 @@ export const CodeAppliedCard: React.FC<CodeAppliedCardProps> = ({
   linesAdded,
   linesDeleted,
   explanation,
+  operation,
   onCardClick
 }) => {
   const handleClick = () => {
@@ -22,6 +24,9 @@ export const CodeAppliedCard: React.FC<CodeAppliedCardProps> = ({
       onCardClick(filePath);
     }
   };
+
+  const operationLabel =
+    operation === "create" ? "Created" : operation === "delete" ? "Deleted" : "Updated";
 
   return (
     <div className="code-applied-card" onClick={handleClick} title={`Click to open ${fileName}`}>
@@ -31,6 +36,7 @@ export const CodeAppliedCard: React.FC<CodeAppliedCardProps> = ({
             <path d="M2 2a1 1 0 011-1h5.5L12 4.5V14a1 1 0 01-1 1H3a1 1 0 01-1-1V2zm8.5 2.5L8 2v2.5h2.5z"/>
           </svg>
           <span className="file-name">{fileName}</span>
+          <span className="file-operation">{operationLabel}</span>
         </div>
         <div className="diff-stats">
           {linesAdded > 0 && (

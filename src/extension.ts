@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./features/chat/messageHandlerService";
-import { registerPaypilotTools } from "./tools";
+import { ToolsService } from "./features/tools";
 import { getWebviewHtml } from "./infrastructure/htmlService";
 
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
@@ -13,7 +13,9 @@ let messageHandlerService: MessageHandlerService | undefined; // global message 
 export async function activate(context: vscode.ExtensionContext) {
   console.log("PayPilot extension is active");
 
-  const { chatTools } = registerPaypilotTools(context);
+  // Initialize tools service and register all workspace tools
+  const toolsService = new ToolsService(context);
+  const { chatTools } = toolsService.registerAllTools();
 
   // Spin up the coordinator that owns diff/context/mcp services.
   messageHandlerService = new MessageHandlerService(

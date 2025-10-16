@@ -1,4 +1,4 @@
-import { ChatSessionSummary } from "../../types/chat";
+import { ChatSessionSummary } from "./messages";
 
 /**
  * Lightweight placeholder for chat session/history management. Today it keeps an

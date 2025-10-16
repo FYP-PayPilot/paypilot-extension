@@ -1,3 +1,6 @@
+/**
+ * Types specific to the diff tracking domain.
+ */
 import * as vscode from 'vscode';
 
 export type FileOperation = 'create' | 'update' | 'delete';

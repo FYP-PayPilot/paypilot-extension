@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ChatMessage, ChatState, ModelInfo, McpServer } from '../../types/chat';
+import { ChatMessage, ChatState, McpServer } from '../../features/chat/messages';
+import { ModelInfo } from '../../features/language-model/types';
 import { useVSCode } from '../context/VSCodeContext';
 
 /**

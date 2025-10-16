@@ -34,4 +34,4 @@ export {
   resolveWorkspacePath,
   isValidWorkspacePath,
   formatFileSize 
-} from "./toolUtils";
+} from "../../utils/workspace";

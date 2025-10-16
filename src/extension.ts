@@ -25,9 +25,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
   const chatProvider = new ChatViewProvider(context);
 
-  // Ensure the recommended context7 MCP server is registered in user settings.
-  await messageHandlerService.getMcpService().ensureContext7McpServer();
-
   // Register webview view provider for chat panel into extension context
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ContextFile } from "../../types/context";
+import { ContextFile } from "./types";
 
 /**
  * Service to manage context files for AI interactions

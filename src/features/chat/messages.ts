@@ -2,6 +2,8 @@
  * Message types for webview ↔ extension communication
  * Defines the streaming protocol for real-time AI responses
  */
+import { ModelInfo, ModelChangeMessage, ModelListRequestMessage, ModelListResponse } from '../language-model/types';
+import { ContextFile } from '../context/types';
 
 /** Sent from ChatInput component when user submits a message */
 export interface ChatAskMessage {
@@ -15,17 +17,6 @@ export interface ChatAskMessage {
 /** Sent from ChatInput stop button to cancel AI generation */
 export interface ChatStopMessage {
   type: 'chat:stop';                   // Cancels ongoing AI generation
-}
-
-/** Sent from ChatInput model dropdown to change selected model */
-export interface ModelChangeMessage {
-  type: 'model:change';                // Updates selected model
-  model: string;                       // New model identifier
-}
-
-/** Sent from useChat hook on mount to load available models */
-export interface ModelListRequestMessage {
-  type: 'model:list-request';          // Requests available models
 }
 
 /** Sent from CodeAppliedCard when user clicks to open file */
@@ -214,18 +205,6 @@ export type ExtensionToWebviewMessage =
   | ContextFilePickerMessage
   | McpServersResponse;
 
-/** Used in ChatInput dropdown and languageModel service */
-export interface ModelInfo {
-  id: string; // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
-  name: string; // Display name for UI
-  vendor: string; // Provider (e.g., 'vscode', 'openai', 'microsoft')
-  family?: string; // Model family (e.g., 'gpt-4', 'claude')
-  version?: string; // Model version
-  maxTokens?: number; // Maximum context length
-  description?: string; // Optional description
-  isExternal: boolean; // True for external APIs, false for VS Code built-in
-}
-
 /** MCP Server configuration used in MCP functionality */
 export interface McpServer {
   name: string;
@@ -233,15 +212,6 @@ export interface McpServer {
   url?: string;
   command?: string;
   args?: string[];
-}
-
-// Context file information
-/** Used in ContextList, ContextButton, and chat state management */
-export interface ContextFile {
-  filePath: string; // Absolute path to the file
-  fileName: string; // Display name (basename)
-  content?: string; // File content (loaded when needed)
-  size?: number; // File size in bytes
 }
 
 /** Core message type used throughout ChatMessage component and useChat hook */

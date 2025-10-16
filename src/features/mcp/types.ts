@@ -1,4 +1,8 @@
 /**
+ * Types specific to the MCP (Model Context Protocol) domain.
+ */
+
+/**
  * Structure representing an MCP server definition from VS Code settings.
  */
 export interface McpServerConfig {

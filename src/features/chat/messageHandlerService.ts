@@ -11,9 +11,9 @@ import { ContextMessageService } from "../context/contextMessageService";
 import { McpMessageService } from "../mcp/mcpMessageService";
 import { ModelMessageService } from "../language-model/modelMessageService";
 import { ChatHistoryService } from "./chatHistoryService";
-import { ChatMessage, FileChange } from "../../types/chat";
-import { FileOperation } from "../../types/diff";
-import { resolveWorkspaceUri, relativeUriPath } from "../../utils/workspace";
+import { ChatMessage, FileChange } from "./messages";
+import { FileOperation } from "../diff/types";
+import { resolveWorkspaceUri, relativeUriPath, getRelativePath, resolveWorkspacePath } from "../../utils/workspace";
 
 const WORKSPACE_CONTEXT_TOOL_NAME = "paypilot-workspaceContext";
 const CREATE_FILE_TOOL_NAME = "paypilot-createFile";

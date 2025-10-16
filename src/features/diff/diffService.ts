@@ -2,7 +2,7 @@ import * as path from "path";
 import * as vscode from "vscode";
 import { StatusBarService } from "./statusBarService";
 import { OriginalContentProvider } from "./originalContentProvider";
-import { FileOperation, PersistedTrackedFile, TrackedFile } from "../../types/diff";
+import { FileOperation, PersistedTrackedFile, TrackedFile } from "./types";
 
 const TRACKED_FILES_STATE_KEY = "paypilot.trackedDiffFiles"; // key for storing tracked files in workspaceState
 

@@ -2,57 +2,26 @@ import * as vscode from "vscode";
 import * as http from "http";
 import * as path from "path";
 import { resolveWorkspaceUri } from "../../utils/workspace";
+import { DiffService } from "../diff/diffService";
+import { FileOperation } from "../../types/diff";
+import { relativeUriPath } from "../../utils/workspace";
 
 /**
- * Comprehensive result returned from tool execution with all tracking information
+ * Integrated ToolExecutionServer that uses the same notification and tracking
+ * infrastructure as the native agent mode (messageHandlerService).
+ * 
+ * This ensures consistent UX whether tools are called from:
+ * - Native VS Code agent mode
+ * - Backend agent mode via HTTP
  */
-interface ToolExecutionResult {
-  success: boolean;
-  result?: any;
-  error?: string;
-  
-  // Before state (for diff tracking)
-  beforeState?: {
-    content: string;
-    exists: boolean;
-    isDirectory?: boolean;
-    directorySnapshot?: string;
-  };
-  
-  // After state (for diff tracking)
-  afterState?: {
-    content: string;
-    exists: boolean;
-    isDirectory?: boolean;
-  };
-  
-  // Tool metadata for UI notifications
-  toolMetadata?: {
-    fileName: string;
-    filePath: string;
-    relativePath: string;
-    operation: 'create' | 'update' | 'delete' | 'read' | 'directory' | 'directory-delete' | 'context';
-  };
-  
-  // Diff statistics for change summary
-  diffStats?: {
-    linesAdded: number;
-    linesDeleted: number;
-  };
-  
-  // Activity description for real-time UI updates
-  activity?: {
-    title: string;
-    detail?: string;
-    operation: string;
-  };
-}
-
 export class ToolExecutionServer {
   private server: http.Server | undefined;
   private port: number = 3001;
-
-  constructor() {}
+  
+  constructor(
+    private readonly diffService: DiffService,
+    private readonly webviewPanel?: vscode.Webview
+  ) {}
 
   private setupServer(): http.Server {
     return http.createServer(async (req, res) => {
@@ -91,7 +60,8 @@ export class ToolExecutionServer {
             const { toolName, toolArgs } = JSON.parse(body);
             console.log(`[ToolServer] Executing: ${toolName}`, toolArgs);
 
-            const result = await this.executeToolWithTracking(toolName, toolArgs);
+            // Execute tool using the integrated approach
+            const result = await this.executeToolIntegrated(toolName, toolArgs);
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result));
@@ -114,10 +84,10 @@ export class ToolExecutionServer {
   }
 
   /**
-   * Execute tool with comprehensive tracking for agent mode.
-   * Captures before/after state, calculates diffs, and provides activity descriptions.
+   * Execute tool using the same infrastructure as messageHandlerService.
+   * This mirrors the flow: prepareToolContext → invokeTool → notifyToolActivity → applyToolSideEffects
    */
-  private async executeToolWithTracking(toolName: string, toolArgs: any): Promise<ToolExecutionResult> {
+  private async executeToolIntegrated(toolName: string, toolArgs: any): Promise<any> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceRoot) {
       return {
@@ -127,51 +97,60 @@ export class ToolExecutionServer {
     }
 
     try {
-      // Step 1: Capture "before" state
-      const beforeState = await this.captureBeforeState(toolName, toolArgs);
+      // Step 1: Prepare tool context (capture before state)
+      const context = await this.prepareToolContext(toolName, toolArgs);
 
-      // Step 2: Execute the tool
+      // Step 2: Notify tool activity (like notifyToolActivity in messageHandlerService)
+      this.notifyToolActivity(toolName, toolArgs, context);
+
+      // Step 3: Execute the tool
       const executionResult = await this.executeToolLocally(toolName, toolArgs);
 
-      // Step 3: Capture "after" state
-      const afterState = await this.captureAfterState(toolName, toolArgs);
+      // Step 4: Apply side effects (track diffs, send notifications)
+      if (context) {
+        await this.applyToolSideEffects(context, toolName, executionResult);
+      }
 
-      // Step 4: Calculate diff statistics
-      const diffStats = this.calculateDiffStats(beforeState, afterState);
-
-      // Step 5: Generate metadata and activity description
-      const toolMetadata = this.generateToolMetadata(toolName, toolArgs, beforeState);
-      const activity = this.describeToolActivity(toolName, toolArgs, toolMetadata);
-
-      // Step 6: Return comprehensive result
+      // Step 5: Return result to backend
       return {
         success: true,
-        result: executionResult,
-        beforeState,
-        afterState,
-        toolMetadata,
-        diffStats,
-        activity
+        result: executionResult
       };
 
     } catch (error) {
+      // Send error notification to UI
+      if (this.webviewPanel) {
+        this.webviewPanel.postMessage({
+          type: "chat:error",
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+
       return {
         success: false,
-        error: error instanceof Error ? error.message : String(error),
-        activity: {
-          title: `Failed to execute ${toolName}`,
-          detail: error instanceof Error ? error.message : String(error),
-          operation: 'error'
-        }
+        error: error instanceof Error ? error.message : String(error)
       };
     }
   }
 
   /**
-   * Capture file/directory state BEFORE tool execution.
-   * Similar to prepareToolContext in messageHandlerService.
+   * Prepare tool context - captures file state BEFORE execution.
+   * Mirrors prepareToolContext from messageHandlerService.
    */
-  private async captureBeforeState(toolName: string, toolArgs: any): Promise<ToolExecutionResult['beforeState']> {
+  private async prepareToolContext(
+    toolName: string,
+    toolArgs: any
+  ): Promise<
+    | {
+        uri: vscode.Uri;
+        operation: FileOperation;
+        originalContent: string;
+        isDirectory?: boolean;
+        directorySnapshot?: string;
+      }
+    | undefined
+  > {
+    // Context-only tools don't need tracking
     if (toolName === 'paypilot-workspaceContext' || !toolArgs.path) {
       return undefined;
     }
@@ -179,78 +158,59 @@ export class ToolExecutionServer {
     const uri = resolveWorkspaceUri(toolArgs.path);
 
     switch (toolName) {
-      case 'paypilot-createFile':
-      case 'paypilot-updateFile':
-      case 'paypilot-deleteFile':
-      case 'paypilot-readFile': {
-        const snapshot = await this.readFileSnapshot(uri);
+      case 'paypilot-createFile': {
+        const { content, exists } = await this.readFileSnapshot(uri);
         return {
-          content: snapshot.content,
-          exists: snapshot.exists,
-          isDirectory: false
+          uri,
+          operation: exists ? "update" : "create",
+          originalContent: content,
         };
       }
 
-      case 'paypilot-createDirectory':
-      case 'paypilot-deleteDirectory': {
-        const directorySnapshot = await this.captureDirectorySnapshot(uri);
+      case 'paypilot-updateFile': {
+        const { content } = await this.readFileSnapshot(uri);
         return {
-          content: '',
-          exists: directorySnapshot !== undefined,
-          isDirectory: true,
-          directorySnapshot
-        };
-      }
-
-      default:
-        return undefined;
-    }
-  }
-
-  /**
-   * Capture file/directory state AFTER tool execution.
-   */
-  private async captureAfterState(toolName: string, toolArgs: any): Promise<ToolExecutionResult['afterState']> {
-    if (toolName === 'paypilot-workspaceContext' || !toolArgs.path) {
-      return undefined;
-    }
-
-    const uri = resolveWorkspaceUri(toolArgs.path);
-
-    switch (toolName) {
-      case 'paypilot-createFile':
-      case 'paypilot-updateFile':
-      case 'paypilot-readFile': {
-        const snapshot = await this.readFileSnapshot(uri);
-        return {
-          content: snapshot.content,
-          exists: snapshot.exists,
-          isDirectory: false
+          uri,
+          operation: "update",
+          originalContent: content,
         };
       }
 
       case 'paypilot-deleteFile': {
+        const { content, exists } = await this.readFileSnapshot(uri);
+        if (!exists) {
+          return undefined;
+        }
         return {
-          content: '',
-          exists: false,
-          isDirectory: false
+          uri,
+          operation: "delete",
+          originalContent: content,
         };
       }
 
       case 'paypilot-createDirectory': {
-        const exists = await this.checkDirectoryExists(uri);
+        const snapshot = await this.captureDirectorySnapshot(uri);
+        const exists = snapshot !== undefined;
         return {
-          content: '',
-          exists,
-          isDirectory: true
+          uri,
+          operation: exists ? "update" : "create",
+          originalContent: exists ? snapshot ?? "" : "",
+          isDirectory: true,
+          directorySnapshot: snapshot,
         };
       }
 
       case 'paypilot-deleteDirectory': {
+        const snapshot = await this.captureDirectorySnapshot(uri);
+        if (!snapshot) {
+          return undefined;
+        }
         return {
-          content: '',
-          exists: false,
-          isDirectory: true
+          uri,
+          operation: "delete",
+          originalContent: "",
+          isDirectory: true,
+          directorySnapshot: snapshot,
         };
       }
 
@@ -260,274 +220,232 @@ export class ToolExecutionServer {
   }
 
   /**
-   * Read file content and check existence.
+   * Notify tool activity - sends real-time UI updates.
+   * Mirrors notifyToolActivity from messageHandlerService.
    */
-  private async readFileSnapshot(uri: vscode.Uri): Promise<{ content: string; exists: boolean }> {
-    try {
-      const buffer = await vscode.workspace.fs.readFile(uri);
-      return { 
-        content: Buffer.from(buffer).toString("utf8"), 
-        exists: true 
-      };
-    } catch (error) {
-      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
-        return { content: "", exists: false };
-      }
-      throw error;
-    }
-  }
-
-  /**
-   * Check if directory exists.
-   */
-  private async checkDirectoryExists(uri: vscode.Uri): Promise<boolean> {
-    try {
-      const stat = await vscode.workspace.fs.stat(uri);
-      return (stat.type & vscode.FileType.Directory) !== 0;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  /**
-   * Capture complete directory structure as JSON snapshot.
-   */
-  private async captureDirectorySnapshot(uri: vscode.Uri): Promise<string | undefined> {
-    try {
-      const stat = await vscode.workspace.fs.stat(uri);
-      if (!(stat.type & vscode.FileType.Directory)) {
-        return undefined;
-      }
-    } catch (error) {
-      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
-        return undefined;
-      }
-      throw error;
-    }
-
-    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = [];
-    await this.collectDirectoryEntries(uri, uri, entries);
-    return JSON.stringify(entries);
-  }
-
-  /**
-   * Recursively collect directory entries.
-   */
-  private async collectDirectoryEntries(
-    baseUri: vscode.Uri,
-    currentUri: vscode.Uri,
-    entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }>
-  ): Promise<void> {
-    const relative = path
-      .relative(baseUri.fsPath, currentUri.fsPath)
-      .replace(/\\/g, '/');
-    
-    if (relative && relative !== '') {
-      entries.push({ path: relative, type: 'directory' });
-    }
-
-    const children = await vscode.workspace.fs.readDirectory(currentUri);
-    for (const [name, type] of children) {
-      const childUri = vscode.Uri.joinPath(currentUri, name);
-      if (type & vscode.FileType.Directory) {
-        await this.collectDirectoryEntries(baseUri, childUri, entries);
-      } else if (type & vscode.FileType.File) {
-        const content = await vscode.workspace.fs.readFile(childUri);
-        const relativeChild = path
-          .relative(baseUri.fsPath, childUri.fsPath)
-          .replace(/\\/g, '/');
-        entries.push({
-          path: relativeChild,
-          type: 'file',
-          content: Buffer.from(content).toString('base64'),
-        });
-      }
-    }
-  }
-
-  /**
-   * Calculate diff statistics between before and after states.
-   * Similar to DiffService.calculateDiffStats.
-   */
-  private calculateDiffStats(
-    beforeState?: ToolExecutionResult['beforeState'],
-    afterState?: ToolExecutionResult['afterState']
-  ): ToolExecutionResult['diffStats'] {
-    if (!beforeState || !afterState || beforeState.isDirectory) {
-      return undefined;
-    }
-
-    const beforeLines = beforeState.content.split('\n');
-    const afterLines = afterState.content.split('\n');
-
-    // Simple line-by-line diff calculation
-    const maxLines = Math.max(beforeLines.length, afterLines.length);
-    let added = 0;
-    let deleted = 0;
-
-    // Count new lines added
-    if (afterLines.length > beforeLines.length) {
-      added = afterLines.length - beforeLines.length;
-    }
-
-    // Count lines deleted
-    if (beforeLines.length > afterLines.length) {
-      deleted = beforeLines.length - afterLines.length;
-    }
-
-    // Count modified lines (simple approach - compare line by line)
-    const minLines = Math.min(beforeLines.length, afterLines.length);
-    for (let i = 0; i < minLines; i++) {
-      if (beforeLines[i] !== afterLines[i]) {
-        // Line was modified - count as both added and deleted
-        added++;
-        deleted++;
-      }
-    }
-
-    return {
-      linesAdded: added,
-      linesDeleted: deleted
-    };
-  }
-
-  /**
-   * Generate tool metadata for tracking.
-   */
-  private generateToolMetadata(
+  private notifyToolActivity(
     toolName: string,
     toolArgs: any,
-    beforeState?: ToolExecutionResult['beforeState']
-  ): ToolExecutionResult['toolMetadata'] {
-    if (toolName === 'paypilot-workspaceContext' || !toolArgs.path) {
-      return undefined;
+    context?: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+    }
+  ): void {
+    if (!this.webviewPanel) {
+      return; // No UI to notify
     }
 
-    const uri = resolveWorkspaceUri(toolArgs.path);
-    const fileName = path.basename(uri.fsPath);
-    const relativePath = this.getRelativePath(uri);
-
-    let operation: 'create' | 'update' | 'delete' | 'read' | 'directory' | 'directory-delete' | 'context' = 'update';
-
-    switch (toolName) {
-      case 'paypilot-createFile':
-        operation = beforeState?.exists ? 'update' : 'create';
-        break;
-      case 'paypilot-updateFile':
-        operation = 'update';
-        break;
-      case 'paypilot-deleteFile':
-        operation = 'delete';
-        break;
-      case 'paypilot-readFile':
-        operation = 'read';
-        break;
-      case 'paypilot-createDirectory':
-        operation = 'directory';
-        break;
-      case 'paypilot-deleteDirectory':
-        operation = 'directory-delete';
-        break;
+    const activity = this.describeToolActivity(toolName, toolArgs, context);
+    if (!activity) {
+      return;
     }
 
-    return {
-      fileName,
-      filePath: uri.fsPath,
-      relativePath,
-      operation
-    };
+    // Send activity notification to webview
+    this.webviewPanel.postMessage({
+      type: "chat:tool-activity",
+      ...activity,
+    });
+
+    console.log(`[ToolServer] Activity: ${activity.title}`);
   }
 
   /**
-   * Generate activity description for UI notifications.
-   * Similar to describeToolActivity in messageHandlerService.
+   * Describe tool activity for UI notifications.
+   * Mirrors describeToolActivity from messageHandlerService.
    */
   private describeToolActivity(
     toolName: string,
     toolArgs: any,
-    metadata?: ToolExecutionResult['toolMetadata']
-  ): ToolExecutionResult['activity'] {
-    if (toolName === 'paypilot-workspaceContext') {
-      return {
-        title: 'Gathering workspace context…',
-        operation: 'context'
-      };
+    context?: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
     }
-
-    if (!metadata) {
-      if (toolName === 'paypilot-readFile') {
-        return { 
-          title: 'Reading workspace data', 
-          operation: 'read' 
-        };
+  ): { title: string; detail?: string; filePath?: string; operation?: string } | undefined {
+    try {
+      if (toolName === 'paypilot-workspaceContext') {
+        return { title: "Gathering workspace context…", operation: "context" };
       }
-      return {
-        title: `Executing ${toolName}`,
-        operation: 'unknown'
-      };
-    }
 
-    const { fileName, relativePath, operation } = metadata;
+      const candidatePath = toolArgs?.path;
+      const targetUri = context?.uri ?? (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
 
-    switch (operation) {
-      case 'create':
-        return {
-          title: `${fileName} created`,
-          detail: relativePath,
-          operation: 'create'
-        };
-      case 'update':
-        return {
-          title: `${fileName} updated`,
-          detail: relativePath,
-          operation: 'update'
-        };
-      case 'delete':
-        return {
-          title: `${fileName} deleted`,
-          detail: relativePath,
-          operation: 'delete'
-        };
-      case 'read':
-        return {
-          title: `${fileName} read`,
-          detail: relativePath,
-          operation: 'read'
-        };
-      case 'directory':
-        return {
-          title: `${fileName || relativePath} directory created`,
-          detail: relativePath,
-          operation: 'directory'
-        };
-      case 'directory-delete':
-        return {
-          title: `${fileName || relativePath} directory deleted`,
-          detail: relativePath,
-          operation: 'directory-delete'
-        };
-      default:
-        return {
-          title: `${fileName} ${operation}`,
-          detail: relativePath,
-          operation
-        };
+      if (!targetUri) {
+        if (toolName === 'paypilot-readFile') {
+          return { title: "Reading workspace data", operation: "read" };
+        }
+        return undefined;
+      }
+
+      const relativePath = relativeUriPath(targetUri);
+      const fileName = path.basename(targetUri.fsPath);
+
+      switch (toolName) {
+        case 'paypilot-createFile': {
+          const verb = context?.operation === "create" ? "created" : "updated";
+          return {
+            title: `${fileName} ${verb}`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: context?.operation ?? "create",
+          };
+        }
+        case 'paypilot-updateFile': {
+          return {
+            title: `${fileName} updated`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "update",
+          };
+        }
+        case 'paypilot-deleteFile': {
+          return {
+            title: `${fileName} deleted`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "delete",
+          };
+        }
+        case 'paypilot-createDirectory': {
+          return {
+            title: `${fileName || relativePath} directory created`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "directory",
+          };
+        }
+        case 'paypilot-deleteDirectory': {
+          return {
+            title: `${fileName || relativePath} directory deleted`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "directory-delete",
+          };
+        }
+        case 'paypilot-readFile': {
+          return {
+            title: `${fileName} read`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+            operation: "read",
+          };
+        }
+        default:
+          return {
+            title: `Invoked ${toolName}`,
+            detail: relativePath,
+            filePath: targetUri.fsPath,
+          };
+      }
+    } catch (error) {
+      console.warn("[ToolServer] Failed to describe tool activity", error);
+      return undefined;
     }
   }
 
   /**
-   * Get relative path from workspace root.
+   * Apply tool side effects - track changes, calculate diffs, send notifications.
+   * Mirrors applyToolSideEffects from messageHandlerService.
    */
-  private getRelativePath(uri: vscode.Uri): string {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      return uri.fsPath;
+  private async applyToolSideEffects(
+    context: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
+    },
+    toolName: string,
+    executionResult: any
+  ): Promise<void> {
+    if (!this.webviewPanel) {
+      return; // No UI to notify
     }
-    return path.relative(workspaceRoot, uri.fsPath).replace(/\\/g, '/');
+
+    // Handle directory operations
+    if (context.isDirectory) {
+      await this.diffService.trackModifiedFiles([
+        {
+          filePath: context.uri.fsPath,
+          originalContent: context.originalContent,
+          operation: context.operation,
+          isDirectory: true,
+          directorySnapshot: context.directorySnapshot,
+        },
+      ]);
+
+      this.webviewPanel.postMessage({
+        type: "chat:code-applied",
+        fileName: path.basename(context.uri.fsPath),
+        filePath: context.uri.fsPath,
+        linesAdded: 0,
+        linesDeleted: 0,
+        explanation: this.describeOperation(context.operation, context.uri.fsPath),
+        operation: context.operation,
+      });
+
+      return;
+    }
+
+    // Read file content after execution
+    let nextContent = "";
+    if (context.operation !== "delete") {
+      try {
+        nextContent = await this.readFileAfterTool(context.uri);
+      } catch (error) {
+        console.warn(
+          `[ToolServer] Failed to read modified file ${context.uri.fsPath}:`,
+          error
+        );
+      }
+    }
+
+    // Calculate diff statistics
+    const diffStats = this.diffService.calculateDiffStats(
+      context.originalContent.split("\n"),
+      context.operation === "delete" ? [] : nextContent.split("\n")
+    );
+
+    // Track modified files in diff service (enables accept/reject workflow)
+    await this.diffService.trackModifiedFiles([
+      {
+        filePath: context.uri.fsPath,
+        originalContent: context.originalContent,
+        operation: context.operation,
+      },
+    ]);
+
+    // Send code-applied notification with diff stats
+    this.webviewPanel.postMessage({
+      type: "chat:code-applied",
+      fileName: path.basename(context.uri.fsPath),
+      filePath: context.uri.fsPath,
+      linesAdded: diffStats.added,
+      linesDeleted: diffStats.deleted,
+      explanation: this.describeOperation(context.operation, context.uri.fsPath),
+      operation: context.operation,
+    });
+
+    console.log(
+      `[ToolServer] Tracked changes: +${diffStats.added} -${diffStats.deleted} lines`
+    );
+  }
+
+  private describeOperation(operation: FileOperation, filePath: string): string {
+    const fileName = path.basename(filePath);
+    switch (operation) {
+      case "create":
+        return `Created ${fileName}`;
+      case "delete":
+        return `Deleted ${fileName}`;
+      default:
+        return `Updated ${fileName}`;
+    }
   }
 
   /**
-   * Execute tool locally (actual file system operations).
+   * Execute the actual tool operation (file system operations)
    */
   private async executeToolLocally(toolName: string, toolArgs: any): Promise<any> {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0];
@@ -559,6 +477,74 @@ export class ToolExecutionServer {
       
       default:
         throw new Error(`Unknown tool: ${toolName}`);
+    }
+  }
+
+  // Helper methods (same as before)
+
+  private async readFileSnapshot(uri: vscode.Uri): Promise<{ content: string; exists: boolean }> {
+    try {
+      const buffer = await vscode.workspace.fs.readFile(uri);
+      return { content: Buffer.from(buffer).toString("utf8"), exists: true };
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+        return { content: "", exists: false };
+      }
+      throw error;
+    }
+  }
+
+  private async readFileAfterTool(uri: vscode.Uri): Promise<string> {
+    const buffer = await vscode.workspace.fs.readFile(uri);
+    return Buffer.from(buffer).toString("utf8");
+  }
+
+  private async captureDirectorySnapshot(uri: vscode.Uri): Promise<string | undefined> {
+    try {
+      const stat = await vscode.workspace.fs.stat(uri);
+      if (!(stat.type & vscode.FileType.Directory)) {
+        return undefined;
+      }
+    } catch (error) {
+      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+        return undefined;
+      }
+      throw error;
+    }
+
+    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = [];
+    await this.collectDirectoryEntries(uri, uri, entries);
+    return JSON.stringify(entries);
+  }
+
+  private async collectDirectoryEntries(
+    baseUri: vscode.Uri,
+    currentUri: vscode.Uri,
+    entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }>
+  ): Promise<void> {
+    const relative = path
+      .relative(baseUri.fsPath, currentUri.fsPath)
+      .replace(/\\/g, '/');
+    if (relative && relative !== '') {
+      entries.push({ path: relative, type: 'directory' });
+    }
+
+    const children = await vscode.workspace.fs.readDirectory(currentUri);
+    for (const [name, type] of children) {
+      const childUri = vscode.Uri.joinPath(currentUri, name);
+      if (type & vscode.FileType.Directory) {
+        await this.collectDirectoryEntries(baseUri, childUri, entries);
+      } else if (type & vscode.FileType.File) {
+        const content = await vscode.workspace.fs.readFile(childUri);
+        const relativeChild = path
+          .relative(baseUri.fsPath, childUri.fsPath)
+          .replace(/\\/g, '/');
+        entries.push({
+          path: relativeChild,
+          type: 'file',
+          content: Buffer.from(content).toString('base64'),
+        });
+      }
     }
   }
 

@@ -24,6 +24,11 @@ const READ_FILE_TOOL_NAME = "paypilot-readFile";
 const DELETE_DIRECTORY_TOOL_NAME = "paypilot-deleteDirectory";
 
 /**
+ * Agent mode selection
+ */
+type AgentMode = "native" | "backend";
+
+/**
  * Orchestrates chat requests, AI responses, diff tracking, context management, MCP configuration and chat management. 
  * Acts as the bridge between the webview and backend services.
  */
@@ -142,8 +147,7 @@ export class MessageHandlerService {
 
   /**
    * Process a `chat:ask` request from the webview.
-   * Selects the requested language model, streams the response, and applies
-   * modifications when the agent mode is used.
+   * Routes to appropriate handler based on mode and agent selection.
    * @param msg The message payload from the webview.
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when processing completes.
@@ -151,77 +155,71 @@ export class MessageHandlerService {
   private async handleChatAsk(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
     try {
       const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
+      
+      // Get configuration to determine which agent mode to use
+      const cfg = vscode.workspace.getConfiguration("paypilot");
+      const useBackendAgent = cfg.get<boolean>("useBackendAgent", false);
 
-      // Get the specific language model to use
+      // Get model selection
       let selectedModel: vscode.LanguageModelChat | null = null;
       let modelId: string | undefined = msg?.model;
+
       if (mode === "agent") {
-        // Agent mode: Get VS Code model
-        if (msg?.model) {
-          selectedModel = await getLanguageModel(msg.model);
-        }
-        
-        if (!selectedModel) {
-          const vscodeModels = await getVSCodeModels();
-          if (vscodeModels.length === 0) {
+        if (useBackendAgent) {
+          // Backend agent mode - use backend model
+          if (!modelId) {
+            const backendModels = await getBackendModels();
+            if (backendModels.length === 0) {
+              panel.postMessage({
+                type: "chat:error",
+                error: "No backend models available. Please ensure the FastAPI server is running.",
+              });
+              return;
+            }
+            modelId = backendModels[0].id;
+          }
+        } else {
+          // Native agent mode - use VS Code model
+          if (msg?.model) {
+            selectedModel = await getLanguageModel(msg.model);
+          }
+          
+          if (!selectedModel) {
+            const vscodeModels = await getVSCodeModels();
+            if (vscodeModels.length === 0) {
+              panel.postMessage({
+                type: "chat:error",
+                error: "No VS Code language models available. Please install a language model extension.",
+              });
+              return;
+            }
+            selectedModel = await getLanguageModel(vscodeModels[0].id);
+            modelId = vscodeModels[0].id;
+          }
+
+          if (!selectedModel) {
             panel.postMessage({
               type: "chat:error",
-              error: "No VS Code language models available. Please install a language model extension.",
+              error: "Failed to select a VS Code language model for agent mode.",
             });
             return;
           }
-          selectedModel = await getLanguageModel(vscodeModels[0].id);
-          modelId = vscodeModels[0].id;
-        }
-
-        if (!selectedModel) {
-          panel.postMessage({
-            type: "chat:error",
-            error: "Failed to select a VS Code language model for agent mode.",
-          });
-          return;
         }
       } else {
-        // Ask mode: Get backend model ID
+        // Ask mode - always use backend
         if (!modelId) {
           const backendModels = await getBackendModels();
           if (backendModels.length === 0) {
             panel.postMessage({
               type: "chat:error",
-              error: "No language models available from backend. Please ensure the FastAPI server is running.",
+              error: "No backend models available. Please ensure the FastAPI server is running.",
             });
             return;
           }
           modelId = backendModels[0].id;
         }
       }
-      // if (msg?.model) {
-      //   selectedModel = await getLanguageModel(msg.model);
-      // }
-      // // Get the model ID to use with backend
-      // let modelId: string | undefined = msg?.model;
-      
-      // if (!selectedModel || !modelId) {
-      //   const availableModels = await getAvailableModels();
-      //   if (availableModels.length === 0) {
-      //     panel.postMessage({
-      //       type: "chat:error",
-      //       error: "No language models available from backend. Please ensure the FastAPI server is running.",
-      //     });
-      //     return;
-      //   }
-      //   modelId = availableModels[0].id;
-      // }
 
-      // if (!selectedModel || !modelId) {
-      //   panel.postMessage({
-      //     type: "chat:error", 
-      //     error: "Failed to select a language model.",
-      //   });
-      //   return;
-      // }
-
-      const cfg = vscode.workspace.getConfiguration("paypilot");
       const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
 
       // Extract editor context for AI prompt
@@ -238,8 +236,6 @@ export class MessageHandlerService {
         contextFilesContent = this.contextService.buildContextContent();
       }
 
-      // const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
-
       const composed = this.promptService.composePrompt(
         msg ?? {},
         mode,
@@ -251,8 +247,13 @@ export class MessageHandlerService {
       const abortController = new AbortController();
       this.currentAbortController = abortController;
 
+      // Route to appropriate handler
       if (mode === "agent") {
-        await this.handleAgentMode(selectedModel!, composed, panel, abortController);
+        if (useBackendAgent) {
+          await this.handleBackendAgentMode(modelId!, composed, panel, abortController);
+        } else {
+          await this.handleNativeAgentMode(selectedModel!, composed, panel, abortController);
+        }
       } else {
         await this.handleAskMode(modelId!, composed, panel, abortController);
       }
@@ -267,20 +268,98 @@ export class MessageHandlerService {
   }
 
   /**
-   * Execute agent mode: loop on tool-capable responses, invoke workspace tools, and track resulting edits.
+   * Execute backend agent mode via FastAPI.
+   * The backend handles the agent loop and calls ToolExecutionServer for tool execution.
+   * The integrated ToolExecutionServer automatically handles all UI notifications and diff tracking.
+   * 
+   * @param modelId The model ID to use for the backend request.
+   * @param composed The fully composed prompt to send to the backend.
+   * @param panel The webview panel to communicate back to.
+   * @param abortController Controller to allow cancellation of the request.
+   * @returns Promise that resolves when processing completes.
+   */
+  private async handleBackendAgentMode(
+    modelId: string,
+    composed: string,
+    panel: vscode.Webview,
+    abortController: AbortController
+  ): Promise<void> {
+    console.log("[PayPilot] Starting Backend Agent Mode via FastAPI");
+    
+    // Send initial working status
+    panel.postMessage({
+      type: "chat:working",
+      message: "Agent is analyzing your request and planning actions...",
+    });
+
+    try {
+      // Extract context for backend
+      const cfg = vscode.workspace.getConfiguration("paypilot");
+      const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
+      const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
+      const fileContext = this.contextService.buildContextContent();
+
+      // Call backend agent endpoint
+      // Backend will:
+      // 1. Run agent loop with LLM
+      // 2. Call ToolExecutionServer via HTTP for tool execution
+      // 3. ToolExecutionServer automatically sends UI notifications
+      // 4. Backend receives tool results and continues loop
+      // 5. Backend returns final response
+      const response = await streamChatAgent(
+        modelId,
+        composed,
+        fileContext,
+        editorContext,
+        abortController.signal
+      );
+
+      // Backend agent is complete
+      // All UI notifications were sent by ToolExecutionServer during execution
+      // Just display the final response
+      panel.postMessage({ 
+        type: "chat:done", 
+        text: response 
+      });
+
+      // Send multi-file edit summary if there were changes
+      // (tracked automatically by integrated ToolExecutionServer)
+      this.sendMultiFileEditSummary(panel);
+
+    } catch (agentError) {
+      if (abortController.signal.aborted || 
+          (agentError instanceof Error && agentError.message === "Request was cancelled")) {
+        console.log("[PayPilot] Backend agent mode cancelled by user");
+        panel.postMessage({ type: "chat:stopped" });
+      } else {
+        console.error("Error in backend agent mode:", agentError);
+        panel.postMessage({
+          type: "chat:error",
+          error: agentError instanceof Error ? agentError.message : String(agentError),
+        });
+      }
+    } finally {
+      this.currentAbortController = null;
+    }
+  }
+
+  /**
+   * Execute native agent mode using VS Code's language model with tool calling.
+   * This is the original agent implementation.
+   * 
    * @param selectedModel The language model to use for the request.
    * @param composed The fully composed prompt to send to the model.
    * @param panel The webview panel to communicate back to.
    * @param abortController Controller to allow cancellation of the request.
    * @returns Promise that resolves when processing completes.
    */
-  private async handleAgentMode(
+  private async handleNativeAgentMode(
     selectedModel: vscode.LanguageModelChat,
     composed: string,
     panel: vscode.Webview,
     abortController: AbortController
   ): Promise<void> {
-    console.log("[PayPilot] Starting Agent Mode");
+    console.log("[PayPilot] Starting Native Agent Mode");
     panel.postMessage({
       type: "chat:working",
       message: "Analyzing code and preparing changes...",
@@ -424,7 +503,7 @@ export class MessageHandlerService {
         }
       }
     } catch (agentError) {
-      console.error("Error in agent mode:", agentError);
+      console.error("Error in native agent mode:", agentError);
       panel.postMessage({
         type: "chat:error",
         error: agentError instanceof Error ? agentError.message : String(agentError),
@@ -1118,7 +1197,7 @@ export class MessageHandlerService {
    */
   dispose(): void {
     this.statusBarService.dispose();
-    this.diffService.dispose(); // Now handles both regular and sequential cleanup
+    this.diffService.dispose();
     this.contextMessageService.clearAll();
     this.mcpService.reset();
     

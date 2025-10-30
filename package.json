@@ -50,6 +50,10 @@
           "type": "number",
           "default": 12000,
           "description": "Maximum characters of editor content to include as context"
+        },
+        "paypilot.useBackendAgent": {
+          "type": "boolean",
+          "default": true
         }
       }
     },

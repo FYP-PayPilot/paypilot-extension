@@ -3,7 +3,9 @@ import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./features/chat/messageHandlerService";
 import { registerPaypilotTools } from "./tools";
 import { getWebviewHtml } from "./infrastructure/htmlService";
+import { ToolExecutionServer } from "./features/tool-execution/toolExecutionServer";
 
+let toolServer: ToolExecutionServer | undefined;
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
 
 /**
@@ -20,6 +22,32 @@ export async function activate(context: vscode.ExtensionContext) {
     context.workspaceState,
     chatTools
   );
+
+  export async function activate(context: vscode.ExtensionContext) {
+  console.log("PayPilot extension is active");
+
+  const { chatTools } = registerPaypilotTools(context);
+
+  // Spin up the coordinator that owns diff/context/mcp services.
+  messageHandlerService = new MessageHandlerService(
+    context.workspaceState,
+    chatTools
+  );
+
+  // Start tool execution server
+  toolServer = new ToolExecutionServer();
+  try {
+    await toolServer.start(3001);
+    vscode.window.showInformationMessage(
+      `PayPilot tool server running on port ${toolServer.getPort()}`
+    );
+  } catch (error) {
+    console.error("[PayPilot] Failed to start tool server:", error);
+    vscode.window.showErrorMessage("Failed to start PayPilot tool server");
+  }
+  context.subscriptions.push({
+    dispose: () => toolServer?.dispose()
+  });
 
   const chatProvider = new ChatViewProvider(context);
 

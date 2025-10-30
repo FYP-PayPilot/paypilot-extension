@@ -22,9 +22,10 @@ export async function activate(context: vscode.ExtensionContext) {
     context.workspaceState,
     chatTools
   );
+  const diffService = messageHandlerService.getDiffService();
 
   // Start tool execution server
-  toolServer = new ToolExecutionServer();
+  toolServer = new ToolExecutionServer(diffService);
   try {
     await toolServer.start(3001);
     vscode.window.showInformationMessage(

@@ -407,7 +407,7 @@ export class ToolExecutionServer {
     const fileName = path.basename(uri.fsPath);
     const relativePath = this.getRelativePath(uri);
 
-    let operation: ToolExecutionResult['toolMetadata']['operation'] = 'update';
+    let operation: 'create' | 'update' | 'delete' | 'read' | 'directory' | 'directory-delete' | 'context' = 'update';
 
     switch (toolName) {
       case 'paypilot-createFile':

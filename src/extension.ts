@@ -23,17 +23,6 @@ export async function activate(context: vscode.ExtensionContext) {
     chatTools
   );
 
-  export async function activate(context: vscode.ExtensionContext) {
-  console.log("PayPilot extension is active");
-
-  const { chatTools } = registerPaypilotTools(context);
-
-  // Spin up the coordinator that owns diff/context/mcp services.
-  messageHandlerService = new MessageHandlerService(
-    context.workspaceState,
-    chatTools
-  );
-
   // Start tool execution server
   toolServer = new ToolExecutionServer();
   try {

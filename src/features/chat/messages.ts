@@ -6,8 +6,8 @@ import { ModelInfo, ModelChangeMessage, ModelListRequestMessage, ModelListRespon
 import { ContextFile } from '../context/types';
 
 /** Sent from ChatInput component when user submits a message */
-export interface ChatAskMessage {
-  type: 'chat:ask';                    // Initiates AI chat request
+export interface ChatQueryMessage {
+  type: 'chat:query';                  // Initiates AI chat request
   prompt: string;                      // User's input message
   mode: 'agent' | 'ask';              // Response mode: code generation vs Q&A
   model: string;                       // Selected model identifier
@@ -58,19 +58,9 @@ export interface GetMcpServersMessage {
   type: "mcp:get";
 }
 
-/** Sent when user wants to start a new chat session */
-export interface NewChatMessage {
-  type: "chat:new";
-}
-
-/** Sent when user wants to view chat history */
-export interface ChatHistoryMessage {
-  type: "chat:history";
-}
-
 /** Union type used in VSCodeContext for type-safe message routing */
 export type WebviewToExtensionMessage =
-  | ChatAskMessage
+  | ChatQueryMessage
   | ChatStopMessage
   | ModelChangeMessage
   | ModelListRequestMessage
@@ -80,9 +70,7 @@ export type WebviewToExtensionMessage =
   | ContextRemoveMessage
   | ContextClearMessage
   | McpToggleMessage
-  | GetMcpServersMessage
-  | NewChatMessage
-  | ChatHistoryMessage;
+  | GetMcpServersMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
@@ -251,15 +239,22 @@ export interface ChatState {
   contextFiles: ContextFile[];        // Files added for context
 }
 
-/** Summary info for chat sessions - used in ChatHistoryService and ChatHistoryPanel
- * When persistent storage is added this will be expanded to include timestamps, etc.
- * For now it's just an in-memory list so the rest of the system has a consistent seam to call into.
- * When real persistence is added this class will own it.
- */
-export interface ChatSessionSummary {
-  id: string;
-  title: string;
-  createdAt: string;
+/** Tool context for tracking file operations during agent mode */
+export interface ToolContext {
+  uri: import('vscode').Uri;
+  operation: import('../diff/types').FileOperation;
+  originalContent: string;
+  isDirectory?: boolean;
+  directorySnapshot?: string;
+}
+
+/** Session file change tracking for multi-file edit summaries */
+export interface SessionFileChange {
+  fileName: string;
+  filePath: string;
+  operation: "create" | "update" | "delete" | "directory" | "directory-delete" | "read";
+  linesAdded?: number;
+  linesDeleted?: number;
 }
 
 /** Interface for messages sent between webview and extension

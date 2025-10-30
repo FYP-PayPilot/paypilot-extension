@@ -211,7 +211,7 @@ export const useChat = () => {
 
     // Trigger AI request - will result in streaming tokens
     postMessage({
-      type: 'chat:ask',
+      type: 'chat:query',
       prompt: prompt.trim(),
         mode,
         model: selectedModel,
@@ -342,9 +342,6 @@ export const useChat = () => {
       messages: [],
     }));
 
-    // Send message to extension (if needed for backend sync)
-    postMessage({ type: 'chat:new' });
-    
     console.log('=== NEW CHAT STARTED ===');
   }, [postMessage, saveCurrentChatToHistory, state.messages.length]);
 

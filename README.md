@@ -77,7 +77,7 @@ Each folder under `src/features` represents a domain module that owns its logic 
 ## Cross-Domain Message Flow
 
 ### Ask Mode (analysis only)
-1. Webview sends `{ type: 'chat:ask', mode: 'ask', ... }` through `VSCodeContext`.
+1. Webview sends `{ type: 'chat:query', mode: 'ask', ... }` through `VSCodeContext`.
 2. `MessageHandlerService` composes the prompt via `PromptService`, sends the request with tool support, and forwards streamed tokens to the webview as `chat:stream`.
 3. The final response arrives as `chat:response`. No file modifications occur, so the Diff domain remains idle.
 

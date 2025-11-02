@@ -1,4 +1,4 @@
-import { ModelInfo } from '../types/chat';
+import { ModelInfo } from '../features/language-model/types';
 
 /**
  * Language Model Service - FastAPI Server Client

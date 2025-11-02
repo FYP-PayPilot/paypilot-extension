@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useCallback, useEffect, useState } from 'react';
-import { WebviewToExtensionMessage, ExtensionToWebviewMessage } from '../../types/chat';
+import { WebviewToExtensionMessage, ExtensionToWebviewMessage } from '../../features/chat/messages';
 
 /**
  * React context for VS Code webview communication.

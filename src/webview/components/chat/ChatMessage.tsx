@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChatMessage as ChatMessageType } from '../../../types/chat';
+import { ChatMessage as ChatMessageType } from '../../../features/chat/messages';
 import { CodeAppliedCard } from './CodeAppliedCard';
 import { ToolActivityCard } from './ToolActivityCard';
 import { MultiFileEditSummary } from './MultiFileEditSummary';

@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { ContextFile } from "../../types/context";
+import { ContextFile } from "./types";
 
 /**
  * Service to manage context files for AI interactions
@@ -260,7 +260,7 @@ export class ContextService {
 
   /**
    * Compose the currently tracked context files into a prompt-friendly string.
-   * Called from MessageHandlerService.handleChatAsk right before invoking the language model.
+   * Called from MessageHandlerService.handleChatQuery right before invoking the language model.
    * @returns String containing annotated file sections, or an empty string when no context exists.
    */
 

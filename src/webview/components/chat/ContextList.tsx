@@ -1,5 +1,5 @@
 import React from 'react';
-import { ContextFile } from '../../../types/chat';
+import { ContextFile } from '../../../features/context/types';
 import { Button } from '../ui/Button';
 import { HiXMark, HiDocument } from 'react-icons/hi2';
 

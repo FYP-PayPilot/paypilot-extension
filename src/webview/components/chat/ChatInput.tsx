@@ -5,7 +5,9 @@ import { ContextButton } from './ContextButton';
 import { IoSend, IoStop } from 'react-icons/io5';
 import { HiSparkles, HiChevronDown, HiInformationCircle } from 'react-icons/hi2';
 import { BsQuestionLg } from 'react-icons/bs';
-import { ModelInfo, ContextFile, McpServer } from '../../../types/chat';
+import { McpServer } from '../../../features/chat/messages';
+import { ModelInfo } from '../../../features/language-model/types';
+import { ContextFile } from '../../../features/context/types';
 
 interface ChatInputProps {
   onSendMessage: (message: string, mode: 'agent' | 'ask') => void;

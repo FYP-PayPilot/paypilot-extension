@@ -319,9 +319,6 @@ export class MessageHandlerService {
               : summary
             : aggregatedResponse;
           panel.postMessage({ type: 'chat:done', text: finalText });
-          if (summary) {
-            panel.postMessage({ type: 'chat:agent-summary', text: summary });
-          }
 
           // Send multi-file edit summary if there were file changes
           this.sendMultiFileEditSummary(panel);

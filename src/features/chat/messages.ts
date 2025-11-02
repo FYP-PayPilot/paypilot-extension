@@ -2,10 +2,12 @@
  * Message types for webview ↔ extension communication
  * Defines the streaming protocol for real-time AI responses
  */
+import { ModelInfo, ModelChangeMessage, ModelListRequestMessage, ModelListResponse } from '../language-model/types';
+import { ContextFile } from '../context/types';
 
 /** Sent from ChatInput component when user submits a message */
-export interface ChatAskMessage {
-  type: 'chat:ask';                    // Initiates AI chat request
+export interface ChatQueryMessage {
+  type: 'chat:query';                  // Initiates AI chat request
   prompt: string;                      // User's input message
   mode: 'agent' | 'ask';              // Response mode: code generation vs Q&A
   model: string;                       // Selected model identifier
@@ -15,17 +17,6 @@ export interface ChatAskMessage {
 /** Sent from ChatInput stop button to cancel AI generation */
 export interface ChatStopMessage {
   type: 'chat:stop';                   // Cancels ongoing AI generation
-}
-
-/** Sent from ChatInput model dropdown to change selected model */
-export interface ModelChangeMessage {
-  type: 'model:change';                // Updates selected model
-  model: string;                       // New model identifier
-}
-
-/** Sent from useChat hook on mount to load available models */
-export interface ModelListRequestMessage {
-  type: 'model:list-request';          // Requests available models
 }
 
 /** Sent from CodeAppliedCard when user clicks to open file */
@@ -67,19 +58,9 @@ export interface GetMcpServersMessage {
   type: "mcp:get";
 }
 
-/** Sent when user wants to start a new chat session */
-export interface NewChatMessage {
-  type: "chat:new";
-}
-
-/** Sent when user wants to view chat history */
-export interface ChatHistoryMessage {
-  type: "chat:history";
-}
-
 /** Union type used in VSCodeContext for type-safe message routing */
 export type WebviewToExtensionMessage =
-  | ChatAskMessage
+  | ChatQueryMessage
   | ChatStopMessage
   | ModelChangeMessage
   | ModelListRequestMessage
@@ -89,9 +70,7 @@ export type WebviewToExtensionMessage =
   | ContextRemoveMessage
   | ContextClearMessage
   | McpToggleMessage
-  | GetMcpServersMessage
-  | NewChatMessage
-  | ChatHistoryMessage;
+  | GetMcpServersMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
@@ -214,18 +193,6 @@ export type ExtensionToWebviewMessage =
   | ContextFilePickerMessage
   | McpServersResponse;
 
-/** Used in ChatInput dropdown and languageModel service */
-export interface ModelInfo {
-  id: string; // Unique identifier (VS Code model ID, e.g., 'copilot-gpt4o', 'copilot-claude35sonnet')
-  name: string; // Display name for UI
-  vendor: string; // Provider (e.g., 'vscode', 'openai', 'microsoft')
-  family?: string; // Model family (e.g., 'gpt-4', 'claude')
-  version?: string; // Model version
-  maxTokens?: number; // Maximum context length
-  description?: string; // Optional description
-  isExternal: boolean; // True for external APIs, false for VS Code built-in
-}
-
 /** MCP Server configuration used in MCP functionality */
 export interface McpServer {
   name: string;
@@ -233,15 +200,6 @@ export interface McpServer {
   url?: string;
   command?: string;
   args?: string[];
-}
-
-// Context file information
-/** Used in ContextList, ContextButton, and chat state management */
-export interface ContextFile {
-  filePath: string; // Absolute path to the file
-  fileName: string; // Display name (basename)
-  content?: string; // File content (loaded when needed)
-  size?: number; // File size in bytes
 }
 
 /** Core message type used throughout ChatMessage component and useChat hook */
@@ -281,15 +239,22 @@ export interface ChatState {
   contextFiles: ContextFile[];        // Files added for context
 }
 
-/** Summary info for chat sessions - used in ChatHistoryService and ChatHistoryPanel
- * When persistent storage is added this will be expanded to include timestamps, etc.
- * For now it's just an in-memory list so the rest of the system has a consistent seam to call into.
- * When real persistence is added this class will own it.
- */
-export interface ChatSessionSummary {
-  id: string;
-  title: string;
-  createdAt: string;
+/** Tool context for tracking file operations during agent mode */
+export interface ToolContext {
+  uri: import('vscode').Uri;
+  operation: import('../diff/types').FileOperation;
+  originalContent: string;
+  isDirectory?: boolean;
+  directorySnapshot?: string;
+}
+
+/** Session file change tracking for multi-file edit summaries */
+export interface SessionFileChange {
+  fileName: string;
+  filePath: string;
+  operation: "create" | "update" | "delete" | "directory" | "directory-delete" | "read";
+  linesAdded?: number;
+  linesDeleted?: number;
 }
 
 /** Interface for messages sent between webview and extension

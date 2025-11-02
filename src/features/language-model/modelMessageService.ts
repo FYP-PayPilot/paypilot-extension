@@ -7,27 +7,6 @@ import { getVSCodeModels } from './languageModelService';
  * Now uses FastAPI backend for model discovery.
  */
 export class ModelMessageService {
-  
-  /**
-   * Send the list of available VS Code language models to the webview.
-   * Called from MessageHandlerService when the webview signals it's ready to receive them.
-   * @param panel The webview panel to send the message to.
-   * @return Promise that resolves when the operation completes.
-   */
-  // async sendAvailableModels(panel: vscode.Webview): Promise<void> {
-  //   console.log("[PayPilot] Loading available models");
-  //   try {
-  //     const models = await getAvailableModels();
-  //     console.log(`[PayPilot] Successfully loaded ${models.length} models`);
-  //     panel.postMessage({ type: "model:list", models });
-  //   } catch (error) {
-  //     console.error("Error getting available models:", error);
-  //     panel.postMessage({
-  //       type: "chat:error",
-  //       error: "Failed to load available models from backend. Is the FastAPI server running?",
-  //     });
-  //   }
-  // }
 
   /**
    * Log model change events from the webview. The next chat request will pick up the new model id.

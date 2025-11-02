@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getBackendModels, streamChatAgent, streamChatUI } from "../../infrastructure/vscode_http_client";
+import { getBackendModels, streamChatUI } from "../../infrastructure/vscode_http_client";
 import { getVSCodeModels, getLanguageModel } from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
@@ -10,10 +10,9 @@ import { PromptService } from "./promptService";
 import { ContextMessageService } from "../context/contextMessageService";
 import { McpMessageService } from "../mcp/mcpMessageService";
 import { ModelMessageService } from "../language-model/modelMessageService";
-import { ChatHistoryService } from "./chatHistoryService";
-import { ChatMessage, FileChange } from "../../types/chat";
-import { FileOperation } from "../../types/diff";
-import { resolveWorkspaceUri, relativeUriPath } from "../../utils/workspace";
+import { ChatMessage, FileChange, ToolContext, SessionFileChange } from "./messages";
+import { FileOperation } from "../diff/types";
+import { resolveWorkspacePath, getRelativePath } from "../../utils/workspace";
 
 const WORKSPACE_CONTEXT_TOOL_NAME = "paypilot-workspaceContext";
 const CREATE_FILE_TOOL_NAME = "paypilot-createFile";
@@ -37,21 +36,8 @@ export class MessageHandlerService {
   private readonly contextMessageService: ContextMessageService;
   private readonly mcpMessageService: McpMessageService;
   private readonly modelMessageService: ModelMessageService;
-  private readonly chatHistoryService: ChatHistoryService;
   private agentChangeLog: string[] = [];
-  private currentSessionFileChanges: Array<{
-    fileName: string;
-    filePath: string;
-    operation:
-      | "create"
-      | "update"
-      | "delete"
-      | "directory"
-      | "directory-delete"
-      | "read";
-    linesAdded?: number;
-    linesDeleted?: number;
-  }> = [];
+  private currentSessionFileChanges: SessionFileChange[] = [];
 
   constructor(
     workspaceState: vscode.Memento,
@@ -65,7 +51,6 @@ export class MessageHandlerService {
     this.contextMessageService = new ContextMessageService(this.contextService);
     this.mcpMessageService = new McpMessageService(this.mcpService);
     this.modelMessageService = new ModelMessageService();
-    this.chatHistoryService = new ChatHistoryService();
   }
 
   /**
@@ -95,17 +80,11 @@ export class MessageHandlerService {
     const messageType = message?.type;
 
     switch (messageType) {
-      case "chat:ask":
-        await this.handleChatAsk(message, panel);
+      case "chat:query":
+        await this.handleChatQuery(message, panel);
         break;
       case "chat:stop":
         await this.handleChatStop(panel);
-        break;
-      case "chat:new":
-        await this.handleNewChat(message, panel);
-        break;
-      case "chat:history":
-        await this.handleChatHistory(panel);
         break;
       case "model:list-request":
         await this.modelMessageService.sendAvailableModels(panel);
@@ -141,14 +120,14 @@ export class MessageHandlerService {
   }
 
   /**
-   * Process a `chat:ask` request from the webview.
+   * Process a `chat:query` request from the webview.
    * Selects the requested language model, streams the response, and applies
    * modifications when the agent mode is used.
    * @param msg The message payload from the webview.
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when processing completes.
    */
-  private async handleChatAsk(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
+  private async handleChatQuery(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
     try {
       const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
 
@@ -195,31 +174,6 @@ export class MessageHandlerService {
           modelId = backendModels[0].id;
         }
       }
-      // if (msg?.model) {
-      //   selectedModel = await getLanguageModel(msg.model);
-      // }
-      // // Get the model ID to use with backend
-      // let modelId: string | undefined = msg?.model;
-      
-      // if (!selectedModel || !modelId) {
-      //   const availableModels = await getAvailableModels();
-      //   if (availableModels.length === 0) {
-      //     panel.postMessage({
-      //       type: "chat:error",
-      //       error: "No language models available from backend. Please ensure the FastAPI server is running.",
-      //     });
-      //     return;
-      //   }
-      //   modelId = availableModels[0].id;
-      // }
-
-      // if (!selectedModel || !modelId) {
-      //   panel.postMessage({
-      //     type: "chat:error", 
-      //     error: "Failed to select a language model.",
-      //   });
-      //   return;
-      // }
 
       const cfg = vscode.workspace.getConfiguration("paypilot");
       const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
@@ -258,7 +212,7 @@ export class MessageHandlerService {
       }
     } catch (error) {
       this.currentAbortController = null;
-      console.error("Error in chat:ask handler:", error);
+      console.error("Error in chat:query handler:", error);
       panel.postMessage({
         type: "chat:error",
         error: error instanceof Error ? error.message : "An unknown error occurred",
@@ -365,9 +319,6 @@ export class MessageHandlerService {
               : summary
             : aggregatedResponse;
           panel.postMessage({ type: 'chat:done', text: finalText });
-          if (summary) {
-            panel.postMessage({ type: 'chat:agent-summary', text: summary });
-          }
 
           // Send multi-file edit summary if there were file changes
           this.sendMultiFileEditSummary(panel);
@@ -408,8 +359,7 @@ export class MessageHandlerService {
                 planSent = true;
               }
             }
-            const hasMoreCalls = index < toolCalls.length - 1;
-            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
+            // Tool execution completed - no additional workspace refresh needed
           } catch (toolError) {
             console.error("[PayPilot] Tool invocation failed", toolError);
             panel.postMessage({
@@ -505,14 +455,6 @@ export class MessageHandlerService {
     }
   }
 
-  private injectWorkspaceRefreshIfNeeded(
-    _conversation: vscode.LanguageModelChatMessage[],
-    _call: vscode.LanguageModelToolCallPart,
-    _hasMoreCallsInBatch: boolean
-  ): void {
-    // Prompt guidance already covers follow-up workspace queries.
-  }
-
   private recordAgentChange(entry: string | undefined): void {
     if (!entry) {
       return;
@@ -600,21 +542,12 @@ export class MessageHandlerService {
     return new vscode.LanguageModelToolResultPart(call.callId, result.content);
   }
 
-  private async prepareToolContext(
-    call: vscode.LanguageModelToolCallPart
-  ): Promise<
-    | {
-        uri: vscode.Uri;
-        operation: FileOperation;
-        originalContent: string;
-        isDirectory?: boolean;
-        directorySnapshot?: string;
-      }
-    | undefined
-  > {
+  private async prepareToolContext(call: vscode.LanguageModelToolCallPart): Promise<ToolContext | undefined> {
+    const getTargetPath = () => resolveWorkspacePath((call.input as { path: string }).path);
+
     switch (call.name) {
       case CREATE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = getTargetPath();
         const { content, exists } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -623,7 +556,7 @@ export class MessageHandlerService {
         };
       }
       case UPDATE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = getTargetPath();
         const { content } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -632,7 +565,7 @@ export class MessageHandlerService {
         };
       }
       case DELETE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = getTargetPath();
         const { content, exists } = await this.readFileSnapshot(target);
         if (!exists) {
           return undefined;
@@ -644,7 +577,7 @@ export class MessageHandlerService {
         };
       }
       case CREATE_DIRECTORY_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = getTargetPath();
         const snapshot = await this.captureDirectorySnapshot(target);
         const exists = snapshot !== undefined;
         return {
@@ -656,7 +589,7 @@ export class MessageHandlerService {
         };
       }
       case DELETE_DIRECTORY_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = getTargetPath();
         const snapshot = await this.captureDirectorySnapshot(target);
         if (!snapshot) {
           return undefined;
@@ -738,7 +671,7 @@ export class MessageHandlerService {
 
       const input = call.input as { path?: string } | undefined;
       const candidatePath = input?.path;
-      const targetUri = context?.uri ?? (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
+      const targetUri = context?.uri ?? (candidatePath ? resolveWorkspacePath(candidatePath) : undefined);
 
       if (!targetUri) {
         if (call.name === READ_FILE_TOOL_NAME) {
@@ -747,7 +680,7 @@ export class MessageHandlerService {
         return undefined;
       }
 
-      const relativePath = relativeUriPath(targetUri);
+      const relativePath = getRelativePath(targetUri);
       const fileName = path.basename(targetUri.fsPath);
 
       switch (call.name) {
@@ -868,7 +801,7 @@ export class MessageHandlerService {
       }
 
       this.recordAgentChange(
-        `${this.describeOperation(context.operation, context.uri.fsPath)} (${relativeUriPath(context.uri)})`
+        `${this.describeOperation(context.operation, context.uri.fsPath)} (${getRelativePath(context.uri)})`
       );
 
       panel.postMessage({
@@ -923,7 +856,7 @@ export class MessageHandlerService {
       operation: context.operation,
     });
 
-    const relative = relativeUriPath(context.uri);
+    const relative = getRelativePath(context.uri);
     this.recordAgentChange(
       `${this.describeOperation(context.operation, context.uri.fsPath)} (${relative})`
     );
@@ -1027,34 +960,6 @@ export class MessageHandlerService {
       this.currentAbortController = null;
       panel.postMessage({ type: "chat:stopped" });
     }
-  }
-
-  /**
-   * Start a new chat session, optionally with a title.
-   * @param message The message payload from the webview, possibly containing a title.
-   * @param panel The webview panel to communicate back to.
-   * @returns Promise that resolves when the operation completes.
-   */
-  private async handleNewChat(message: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
-    const session = this.chatHistoryService.createSession(message?.title);
-    panel.postMessage({
-      type: "chat:new-response",
-      success: true,
-      session,
-    });
-  }
-
-  /**
-   * Return currently known chat sessions to the webview.
-   * @param panel The webview panel to communicate back to.
-   * @returns Promise that resolves when the operation completes.
-   */
-  private async handleChatHistory(panel: vscode.Webview): Promise<void> {
-    const sessions = this.chatHistoryService.listSessions();
-    panel.postMessage({
-      type: "chat:history-response",
-      sessions,
-    });
   }
 
   /**

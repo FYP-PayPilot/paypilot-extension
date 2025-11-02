@@ -4,8 +4,8 @@
  * - Direct sendRequest calls with proper error handling
  */
 
-import * as vscode from 'vscode';
-import { ModelInfo } from '../../types/chat';
+import * as vscode from "vscode";
+import { ModelInfo } from "./types";
 
 /**
  * Get all available VS Code language models

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ChatMessage, ChatState, ModelInfo, McpServer } from '../../types/chat';
+import { ChatMessage, ChatState, McpServer } from '../../features/chat/messages';
+import { ModelInfo } from '../../features/language-model/types';
 import { useVSCode } from '../context/VSCodeContext';
 
 /**
@@ -210,7 +211,7 @@ export const useChat = () => {
 
     // Trigger AI request - will result in streaming tokens
     postMessage({
-      type: 'chat:ask',
+      type: 'chat:query',
       prompt: prompt.trim(),
         mode,
         model: selectedModel,
@@ -341,9 +342,6 @@ export const useChat = () => {
       messages: [],
     }));
 
-    // Send message to extension (if needed for backend sync)
-    postMessage({ type: 'chat:new' });
-    
     console.log('=== NEW CHAT STARTED ===');
   }, [postMessage, saveCurrentChatToHistory, state.messages.length]);
 

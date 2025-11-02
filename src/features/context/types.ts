@@ -1,4 +1,8 @@
 /**
+ * Types specific to the context management domain.
+ */
+
+/**
  * Interface for context file data
  */
 export interface ContextFile {

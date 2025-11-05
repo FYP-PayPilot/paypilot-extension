@@ -168,7 +168,7 @@ export class MessageHandlerService {
         if (useBackendAgent) {
           // Backend agent mode - use backend model
           if (!modelId) {
-            const backendModels = await getBackendModels();
+            const backendModels = await getBackendModels(); // TODO: update this endpoint
             if (backendModels.length === 0) {
               panel.postMessage({
                 type: "chat:error",
@@ -247,15 +247,16 @@ export class MessageHandlerService {
       const abortController = new AbortController();
       this.currentAbortController = abortController;
 
+      const userPrompt = msg ? msg.prompt ?? '': '';
       // Route to appropriate handler
       if (mode === "agent") {
         if (useBackendAgent) {
-          await this.handleBackendAgentMode(modelId!, composed, panel, abortController);
+          await this.handleBackendAgentMode(modelId!, userPrompt, panel, abortController);
         } else {
           await this.handleNativeAgentMode(selectedModel!, composed, panel, abortController);
         }
       } else {
-        await this.handleAskMode(modelId!, composed, panel, abortController);
+        await this.handleAskMode(modelId!, userPrompt, panel, abortController);
       }
     } catch (error) {
       this.currentAbortController = null;
@@ -519,21 +520,21 @@ export class MessageHandlerService {
   /**
    * Execute ask mode: stream the model's text back to the chat UI via FastAPI backend.
    * @param modelId The model ID to use for the backend request.
-   * @param composed The fully composed prompt to send to the model.
+   * @param userPrompt The user's input to send to the model.
    * @param panel The webview panel to communicate back to.
    * @param abortController Controller to allow cancellation of the request.
    * @returns Promise that resolves when processing completes.
    */
   private async handleAskMode(
     modelId: string,
-    composed: string,
+    userPrompt: string,
     panel: vscode.Webview,
     abortController: AbortController
   ): Promise<void> {
     console.log("[PayPilot] Starting Ask Mode via FastAPI backend");
 
     const conversation: vscode.LanguageModelChatMessage[] = [
-      vscode.LanguageModelChatMessage.User(composed),
+      vscode.LanguageModelChatMessage.User(userPrompt),
     ];
     const cancellationTokenSource = new vscode.CancellationTokenSource();
     const { signal } = abortController;
@@ -552,7 +553,7 @@ export class MessageHandlerService {
       // Stream from FastAPI backend
       await streamChatUI(
         modelId,
-        composed,
+        userPrompt,
         fileContext,
         editorContext,
         (token: string) => {

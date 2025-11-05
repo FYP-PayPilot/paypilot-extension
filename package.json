@@ -10,7 +10,7 @@
     "url": "https://github.com/FYP-PayPilot/paypilot-extension"
   },
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.103.0"
   },
   "categories": [
     "AI",

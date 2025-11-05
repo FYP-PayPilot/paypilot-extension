@@ -4,11 +4,17 @@
   "description": "AI coding assistant with a chat side panel and apply changes",
   "version": "0.0.1",
   "publisher": "paypilot",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FYP-PayPilot/paypilot-extension"
+  },
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.103.0"
   },
   "categories": [
-    "Other"
+    "AI",
+    "Chat"
   ],
   "main": "./dist/extension.js",
   "contributes": {

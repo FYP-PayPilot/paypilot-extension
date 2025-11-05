@@ -7,8 +7,8 @@ import { ModelInfo } from '../features/language-model/types';
  * using the VS Code Language Model API directly.
  */
 
-// Configuration - for local development
-const FASTAPI_BASE_URL = 'http://localhost:8000';
+// Configuration - Production backend
+const FASTAPI_BASE_URL = 'http://209.38.58.134:8000';
 const TIMEOUT_MS = 30000;
 
 /**

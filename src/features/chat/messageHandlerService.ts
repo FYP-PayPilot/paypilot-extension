@@ -1,7 +1,7 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getBackendModels, streamChatAgent, streamChatUI } from "../../infrastructure/vscode_http_client";
+import { getBackendModels, getChatAgent, streamChatUI } from "../../infrastructure/vscode_http_client";
 import { getVSCodeModels, getLanguageModel } from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
@@ -307,7 +307,7 @@ export class MessageHandlerService {
       // 3. ToolExecutionServer automatically sends UI notifications
       // 4. Backend receives tool results and continues loop
       // 5. Backend returns final response
-      const response = await streamChatAgent(
+      const response = await getChatAgent(
         modelId,
         composed,
         fileContext,

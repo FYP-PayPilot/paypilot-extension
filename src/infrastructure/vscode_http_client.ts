@@ -50,14 +50,14 @@ export async function getBackendModels(): Promise<ModelInfo[]> {
  * Stream chat response from FastAPI server - Agent Mode (no UI streaming)
  * Collects full response before processing
  */
-export async function streamChatAgent(
+export async function getChatAgent(
   modelId: string,
   userPrompt: string,
   fileContext: string,
   editorContext: string,
   abortSignal?: AbortSignal
 ): Promise<string> {
-  console.log(`[PayPilot] Using streamChatAgent via FastAPI with model: ${modelId}`);
+  console.log(`[PayPilot] Using getChatAgent via FastAPI with model: ${modelId}`);
   
   try {
     const controller = new AbortController();
@@ -89,6 +89,7 @@ export async function streamChatAgent(
 
     const result = await response.json();
     console.log(`[PayPilot] ✅ Agent mode complete via FastAPI - received ${result.response.length} characters`);
+    console.log(`[PayPilot] ✅ Agent mode complete via FastAPI - tokens used ${result.response.tokens_used}`);
     
     return result.response;
     

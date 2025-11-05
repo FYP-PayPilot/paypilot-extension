@@ -1,14 +1,34 @@
 {
   "name": "paypilot",
   "displayName": "PayPilot",
-  "description": "AI coding assistant with a chat side panel and apply changes",
-  "version": "0.0.1",
+  "description": "AI-powered coding assistant with smart chat, instant code modifications, and PayPal integration expertise built right into VS Code",
+  "version": "0.0.4",
   "publisher": "paypilot",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FYP-PayPilot/paypilot-extension"
+  },
   "engines": {
-    "vscode": "^1.96.0"
+    "vscode": "^1.103.0"
   },
   "categories": [
-    "Other"
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "assistant",
+    "copilot",
+    "paypal",
+    "payment",
+    "code generation",
+    "refactoring",
+    "claude",
+    "gpt",
+    "llm"
   ],
   "main": "./dist/extension.js",
   "contributes": {

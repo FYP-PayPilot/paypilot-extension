@@ -2,7 +2,6 @@ import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./features/chat/messageHandlerService";
 import { registerPaypilotTools } from "./tools";
-import { getWebviewHtml } from "./infrastructure/htmlService";
 import { ToolExecutionServer } from "./features/tool-execution/toolExecutionServer";
 
 let toolServer: ToolExecutionServer | undefined;
@@ -22,10 +21,9 @@ export async function activate(context: vscode.ExtensionContext) {
     context.workspaceState,
     chatTools
   );
-  const diffService = messageHandlerService.getDiffService();
 
   // Start tool execution server
-  toolServer = new ToolExecutionServer(diffService);
+  toolServer = new ToolExecutionServer(messageHandlerService);
   try {
     await toolServer.start(3001);
     vscode.window.showInformationMessage(
@@ -139,6 +137,11 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Bridge the webview messages back into the message handler.
   chatProvider.onMessage(async (msg: unknown, panel: vscode.Webview) => {
+  // Connect webview on first message
+    if (toolServer) {
+      toolServer.setWebview(panel);
+    }
+
     if (messageHandlerService) {
       await messageHandlerService.handleMessage(msg, panel);
     }

@@ -1,8 +1,15 @@
 import * as path from "path";
 import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
-import { getBackendModels, getChatAgent, streamChatUI } from "../../infrastructure/vscode_http_client";
-import { getVSCodeModels, getLanguageModel } from "../language-model/languageModelService";
+import {
+  getBackendModels,
+  getChatAgent,
+  streamChatUI,
+} from "../../infrastructure/vscode_http_client";
+import {
+  getVSCodeModels,
+  getLanguageModel,
+} from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
 import { McpService } from "../mcp/mcpService";
 import { ContextService } from "../context/contextService";
@@ -29,7 +36,7 @@ const DELETE_DIRECTORY_TOOL_NAME = "paypilot-deleteDirectory";
 type AgentMode = "native" | "backend";
 
 /**
- * Orchestrates chat requests, AI responses, diff tracking, context management, MCP configuration and chat management. 
+ * Orchestrates chat requests, AI responses, diff tracking, context management, MCP configuration and chat management.
  * Acts as the bridge between the webview and backend services.
  */
 export class MessageHandlerService {
@@ -152,10 +159,13 @@ export class MessageHandlerService {
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when processing completes.
    */
-  private async handleChatAsk(msg: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
+  private async handleChatAsk(
+    msg: ChatMessage | undefined,
+    panel: vscode.Webview
+  ): Promise<void> {
     try {
       const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
-      
+
       // Get configuration to determine which agent mode to use
       const cfg = vscode.workspace.getConfiguration("paypilot");
       const useBackendAgent = cfg.get<boolean>("useBackendAgent", false);
@@ -172,7 +182,8 @@ export class MessageHandlerService {
             if (backendModels.length === 0) {
               panel.postMessage({
                 type: "chat:error",
-                error: "No backend models available. Please ensure the FastAPI server is running.",
+                error:
+                  "No backend models available. Please ensure the FastAPI server is running.",
               });
               return;
             }
@@ -183,13 +194,14 @@ export class MessageHandlerService {
           if (msg?.model) {
             selectedModel = await getLanguageModel(msg.model);
           }
-          
+
           if (!selectedModel) {
             const vscodeModels = await getVSCodeModels();
             if (vscodeModels.length === 0) {
               panel.postMessage({
                 type: "chat:error",
-                error: "No VS Code language models available. Please install a language model extension.",
+                error:
+                  "No VS Code language models available. Please install a language model extension.",
               });
               return;
             }
@@ -200,7 +212,8 @@ export class MessageHandlerService {
           if (!selectedModel) {
             panel.postMessage({
               type: "chat:error",
-              error: "Failed to select a VS Code language model for agent mode.",
+              error:
+                "Failed to select a VS Code language model for agent mode.",
             });
             return;
           }
@@ -212,7 +225,8 @@ export class MessageHandlerService {
           if (backendModels.length === 0) {
             panel.postMessage({
               type: "chat:error",
-              error: "No backend models available. Please ensure the FastAPI server is running.",
+              error:
+                "No backend models available. Please ensure the FastAPI server is running.",
             });
             return;
           }
@@ -220,10 +234,14 @@ export class MessageHandlerService {
         }
       }
 
-      const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
+      const maxContextChars = Math.max(
+        0,
+        Number(cfg.get("maxContextChars")) || 0
+      );
 
       // Extract editor context for AI prompt
-      const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
+      const editorContext =
+        this.contextService.getActiveEditorContext(maxContextChars);
 
       // Build context files content
       let contextFilesContent = "";
@@ -247,13 +265,23 @@ export class MessageHandlerService {
       const abortController = new AbortController();
       this.currentAbortController = abortController;
 
-      const userPrompt = msg ? msg.prompt ?? '': '';
+      const userPrompt = msg ? msg.prompt ?? "" : "";
       // Route to appropriate handler
       if (mode === "agent") {
         if (useBackendAgent) {
-          await this.handleBackendAgentMode(modelId!, userPrompt, panel, abortController);
+          await this.handleBackendAgentMode(
+            modelId!,
+            userPrompt,
+            panel,
+            abortController
+          );
         } else {
-          await this.handleNativeAgentMode(selectedModel!, composed, panel, abortController);
+          await this.handleNativeAgentMode(
+            selectedModel!,
+            composed,
+            panel,
+            abortController
+          );
         }
       } else {
         await this.handleAskMode(modelId!, userPrompt, panel, abortController);
@@ -263,7 +291,8 @@ export class MessageHandlerService {
       console.error("Error in chat:ask handler:", error);
       panel.postMessage({
         type: "chat:error",
-        error: error instanceof Error ? error.message : "An unknown error occurred",
+        error:
+          error instanceof Error ? error.message : "An unknown error occurred",
       });
     }
   }
@@ -272,7 +301,7 @@ export class MessageHandlerService {
    * Execute backend agent mode via FastAPI.
    * The backend handles the agent loop and calls ToolExecutionServer for tool execution.
    * The integrated ToolExecutionServer automatically handles all UI notifications and diff tracking.
-   * 
+   *
    * @param modelId The model ID to use for the backend request.
    * @param composed The fully composed prompt to send to the backend.
    * @param panel The webview panel to communicate back to.
@@ -286,7 +315,7 @@ export class MessageHandlerService {
     abortController: AbortController
   ): Promise<void> {
     console.log("[PayPilot] Starting Backend Agent Mode via FastAPI");
-    
+
     // Send initial working status
     panel.postMessage({
       type: "chat:working",
@@ -296,8 +325,12 @@ export class MessageHandlerService {
     try {
       // Extract context for backend
       const cfg = vscode.workspace.getConfiguration("paypilot");
-      const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
-      const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
+      const maxContextChars = Math.max(
+        0,
+        Number(cfg.get("maxContextChars")) || 0
+      );
+      const editorContext =
+        this.contextService.getActiveEditorContext(maxContextChars);
       const fileContext = this.contextService.buildContextContent();
 
       // Call backend agent endpoint
@@ -318,25 +351,30 @@ export class MessageHandlerService {
       // Backend agent is complete
       // All UI notifications were sent by ToolExecutionServer during execution
       // Just display the final response
-      panel.postMessage({ 
-        type: "chat:done", 
-        text: response 
+      panel.postMessage({
+        type: "chat:done",
+        text: response,
       });
 
       // Send multi-file edit summary if there were changes
       // (tracked automatically by integrated ToolExecutionServer)
       this.sendMultiFileEditSummary(panel);
-
     } catch (agentError) {
-      if (abortController.signal.aborted || 
-          (agentError instanceof Error && agentError.message === "Request was cancelled")) {
+      if (
+        abortController.signal.aborted ||
+        (agentError instanceof Error &&
+          agentError.message === "Request was cancelled")
+      ) {
         console.log("[PayPilot] Backend agent mode cancelled by user");
         panel.postMessage({ type: "chat:stopped" });
       } else {
         console.error("Error in backend agent mode:", agentError);
         panel.postMessage({
           type: "chat:error",
-          error: agentError instanceof Error ? agentError.message : String(agentError),
+          error:
+            agentError instanceof Error
+              ? agentError.message
+              : String(agentError),
         });
       }
     } finally {
@@ -347,7 +385,7 @@ export class MessageHandlerService {
   /**
    * Execute native agent mode using VS Code's language model with tool calling.
    * This is the original agent implementation.
-   * 
+   *
    * @param selectedModel The language model to use for the request.
    * @param composed The fully composed prompt to send to the model.
    * @param panel The webview panel to communicate back to.
@@ -416,14 +454,17 @@ export class MessageHandlerService {
 
         if (toolCalls.length === 0) {
           if (!planSent) {
-            const planSteps = agentPlan.length > 0 ? agentPlan : this.parsePlanLines(aggregatedResponse);
+            const planSteps =
+              agentPlan.length > 0
+                ? agentPlan
+                : this.parsePlanLines(aggregatedResponse);
             if (planSteps.length > 0) {
               if (agentPlan.length === 0) {
                 agentPlan.push(...planSteps);
               }
               panel.postMessage({
-                type: 'chat:agent-plan',
-                title: 'Proposed plan',
+                type: "chat:agent-plan",
+                title: "Proposed plan",
                 steps: planSteps,
               });
               planSent = true;
@@ -431,8 +472,8 @@ export class MessageHandlerService {
           }
           if (!planSent && agentPlan.length > 0) {
             panel.postMessage({
-              type: 'chat:agent-plan',
-              title: 'Proposed plan',
+              type: "chat:agent-plan",
+              title: "Proposed plan",
               steps: agentPlan,
             });
             planSent = true;
@@ -444,9 +485,9 @@ export class MessageHandlerService {
               ? `${baseText}\n\n---\n${summary}`
               : summary
             : aggregatedResponse;
-          panel.postMessage({ type: 'chat:done', text: finalText });
+          panel.postMessage({ type: "chat:done", text: finalText });
           if (summary) {
-            panel.postMessage({ type: 'chat:agent-summary', text: summary });
+            panel.postMessage({ type: "chat:agent-summary", text: summary });
           }
 
           // Send multi-file edit summary if there were file changes
@@ -455,14 +496,16 @@ export class MessageHandlerService {
         }
 
         if (textParts.length > 0) {
-          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+          conversation.push(
+            vscode.LanguageModelChatMessage.Assistant(textParts)
+          );
           if (!planSent) {
             const planSteps = this.extractPlanSteps(textParts);
             if (planSteps.length > 0) {
               agentPlan.push(...planSteps);
               panel.postMessage({
-                type: 'chat:agent-plan',
-                title: 'Proposed plan',
+                type: "chat:agent-plan",
+                title: "Proposed plan",
                 steps: planSteps,
               });
               planSent = true;
@@ -474,8 +517,12 @@ export class MessageHandlerService {
           const call = toolCalls[index];
           try {
             const resultPart = await this.invokeToolCall(call, panel);
-            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
-            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+            conversation.push(
+              vscode.LanguageModelChatMessage.Assistant([call])
+            );
+            conversation.push(
+              vscode.LanguageModelChatMessage.User([resultPart])
+            );
             if (!planSent) {
               const planSteps = this.extractPlanFromToolResult(resultPart);
               if (planSteps.length > 0) {
@@ -489,7 +536,11 @@ export class MessageHandlerService {
               }
             }
             const hasMoreCalls = index < toolCalls.length - 1;
-            this.injectWorkspaceRefreshIfNeeded(conversation, call, hasMoreCalls);
+            this.injectWorkspaceRefreshIfNeeded(
+              conversation,
+              call,
+              hasMoreCalls
+            );
           } catch (toolError) {
             console.error("[PayPilot] Tool invocation failed", toolError);
             panel.postMessage({
@@ -507,7 +558,8 @@ export class MessageHandlerService {
       console.error("Error in native agent mode:", agentError);
       panel.postMessage({
         type: "chat:error",
-        error: agentError instanceof Error ? agentError.message : String(agentError),
+        error:
+          agentError instanceof Error ? agentError.message : String(agentError),
       });
     } finally {
       this.agentChangeLog = [];
@@ -542,12 +594,16 @@ export class MessageHandlerService {
       cancellationTokenSource.cancel();
     };
     signal.addEventListener("abort", listener);
-    
+
     try {
       // Extract context from the composed prompt
       const cfg = vscode.workspace.getConfiguration("paypilot");
-      const maxContextChars = Math.max(0, Number(cfg.get("maxContextChars")) || 0);
-      const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
+      const maxContextChars = Math.max(
+        0,
+        Number(cfg.get("maxContextChars")) || 0
+      );
+      const editorContext =
+        this.contextService.getActiveEditorContext(maxContextChars);
       const fileContext = this.contextService.buildContextContent();
 
       // Stream from FastAPI backend
@@ -566,16 +622,20 @@ export class MessageHandlerService {
         },
         signal
       );
-
     } catch (chatError) {
-      if (signal.aborted || (chatError instanceof Error && chatError.message === "Request cancelled")) {
+      if (
+        signal.aborted ||
+        (chatError instanceof Error &&
+          chatError.message === "Request cancelled")
+      ) {
         console.log("[PayPilot] Ask mode cancelled by user");
         panel.postMessage({ type: "chat:stopped" });
       } else {
         console.error("Error in ask mode:", chatError);
         panel.postMessage({
           type: "chat:error",
-          error: chatError instanceof Error ? chatError.message : String(chatError),
+          error:
+            chatError instanceof Error ? chatError.message : String(chatError),
         });
       }
     } finally {
@@ -610,10 +670,12 @@ export class MessageHandlerService {
     return [`Summary of applied changes:`, ...lines].join("\n");
   }
 
-  private extractPlanSteps(textParts: vscode.LanguageModelTextPart[]): string[] {
+  private extractPlanSteps(
+    textParts: vscode.LanguageModelTextPart[]
+  ): string[] {
     const raw = textParts
       .map((part) => part.value)
-      .join('')
+      .join("")
       .trim();
     return this.parsePlanLines(raw);
   }
@@ -622,8 +684,10 @@ export class MessageHandlerService {
     resultPart: vscode.LanguageModelToolResultPart
   ): string[] {
     const raw = resultPart.content
-      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ''))
-      .join('')
+      .map((part) =>
+        part instanceof vscode.LanguageModelTextPart ? part.value : ""
+      )
+      .join("")
       .trim();
     return this.parsePlanLines(raw);
   }
@@ -633,16 +697,21 @@ export class MessageHandlerService {
       return [];
     }
 
-    const lines = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const lines = raw
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     const steps = lines
       .filter((line) => /^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i.test(line))
-      .map((line) => line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, '').trim());
+      .map((line) =>
+        line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, "").trim()
+      );
 
     if (steps.length > 0) {
       return steps;
     }
 
-    if (lines.length > 1 && raw.toLowerCase().includes('plan')) {
+    if (lines.length > 1 && raw.toLowerCase().includes("plan")) {
       return lines;
     }
 
@@ -650,9 +719,10 @@ export class MessageHandlerService {
   }
 
   private getAskModeTools(): vscode.LanguageModelChatTool[] {
-    return this.chatTools.filter((tool) =>
-      tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
-      tool.name === READ_FILE_TOOL_NAME
+    return this.chatTools.filter(
+      (tool) =>
+        tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
+        tool.name === READ_FILE_TOOL_NAME
     );
   }
 
@@ -694,7 +764,9 @@ export class MessageHandlerService {
   > {
     switch (call.name) {
       case CREATE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const { content, exists } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -703,7 +775,9 @@ export class MessageHandlerService {
         };
       }
       case UPDATE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const { content } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -712,7 +786,9 @@ export class MessageHandlerService {
         };
       }
       case DELETE_FILE_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const { content, exists } = await this.readFileSnapshot(target);
         if (!exists) {
           return undefined;
@@ -724,7 +800,9 @@ export class MessageHandlerService {
         };
       }
       case CREATE_DIRECTORY_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const snapshot = await this.captureDirectorySnapshot(target);
         const exists = snapshot !== undefined;
         return {
@@ -736,7 +814,9 @@ export class MessageHandlerService {
         };
       }
       case DELETE_DIRECTORY_TOOL_NAME: {
-        const target = resolveWorkspaceUri((call.input as { path: string }).path);
+        const target = resolveWorkspaceUri(
+          (call.input as { path: string }).path
+        );
         const snapshot = await this.captureDirectorySnapshot(target);
         if (!snapshot) {
           return undefined;
@@ -810,7 +890,9 @@ export class MessageHandlerService {
       operation: FileOperation;
       originalContent: string;
     }
-  ): { title: string; detail?: string; filePath?: string; operation?: string } | undefined {
+  ):
+    | { title: string; detail?: string; filePath?: string; operation?: string }
+    | undefined {
     try {
       if (call.name === WORKSPACE_CONTEXT_TOOL_NAME) {
         return { title: "Gathering workspace context…", operation: "context" };
@@ -818,7 +900,9 @@ export class MessageHandlerService {
 
       const input = call.input as { path?: string } | undefined;
       const candidatePath = input?.path;
-      const targetUri = context?.uri ?? (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
+      const targetUri =
+        context?.uri ??
+        (candidatePath ? resolveWorkspaceUri(candidatePath) : undefined);
 
       if (!targetUri) {
         if (call.name === READ_FILE_TOOL_NAME) {
@@ -943,12 +1027,18 @@ export class MessageHandlerService {
         },
       ]);
 
-      if (context.operation === 'delete') {
-        this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+      if (context.operation === "delete") {
+        this.contextMessageService.handleExternalRemoval(
+          context.uri.fsPath,
+          panel
+        );
       }
 
       this.recordAgentChange(
-        `${this.describeOperation(context.operation, context.uri.fsPath)} (${relativeUriPath(context.uri)})`
+        `${this.describeOperation(
+          context.operation,
+          context.uri.fsPath
+        )} (${relativeUriPath(context.uri)})`
       );
 
       panel.postMessage({
@@ -957,7 +1047,10 @@ export class MessageHandlerService {
         filePath: context.uri.fsPath,
         linesAdded: 0,
         linesDeleted: 0,
-        explanation: this.describeOperation(context.operation, context.uri.fsPath),
+        explanation: this.describeOperation(
+          context.operation,
+          context.uri.fsPath
+        ),
         operation: context.operation,
       });
       return;
@@ -977,7 +1070,10 @@ export class MessageHandlerService {
     }
 
     if (context.operation === "delete") {
-      this.contextMessageService.handleExternalRemoval(context.uri.fsPath, panel);
+      this.contextMessageService.handleExternalRemoval(
+        context.uri.fsPath,
+        panel
+      );
     }
 
     const diffStats = this.diffService.calculateDiffStats(
@@ -999,18 +1095,26 @@ export class MessageHandlerService {
       filePath: context.uri.fsPath,
       linesAdded: diffStats.added,
       linesDeleted: diffStats.deleted,
-      explanation: this.describeOperation(context.operation, context.uri.fsPath),
+      explanation: this.describeOperation(
+        context.operation,
+        context.uri.fsPath
+      ),
       operation: context.operation,
     });
 
     const relative = relativeUriPath(context.uri);
     this.recordAgentChange(
-      `${this.describeOperation(context.operation, context.uri.fsPath)} (${relative})`
+      `${this.describeOperation(
+        context.operation,
+        context.uri.fsPath
+      )} (${relative})`
     );
 
     // log tool result for transparency
     const resultText = result.content
-      .map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : ""))
+      .map((part) =>
+        part instanceof vscode.LanguageModelTextPart ? part.value : ""
+      )
       .join("")
       .trim();
     if (resultText) {
@@ -1018,7 +1122,10 @@ export class MessageHandlerService {
     }
   }
 
-  private describeOperation(operation: FileOperation, filePath: string): string {
+  private describeOperation(
+    operation: FileOperation,
+    filePath: string
+  ): string {
     const fileName = path.basename(filePath);
     switch (operation) {
       case "create":
@@ -1030,12 +1137,17 @@ export class MessageHandlerService {
     }
   }
 
-  private async readFileSnapshot(uri: vscode.Uri): Promise<{ content: string; exists: boolean }> {
+  private async readFileSnapshot(
+    uri: vscode.Uri
+  ): Promise<{ content: string; exists: boolean }> {
     try {
       const buffer = await vscode.workspace.fs.readFile(uri);
       return { content: Buffer.from(buffer).toString("utf8"), exists: true };
     } catch (error) {
-      if (error instanceof vscode.FileSystemError && error.code === "FileNotFound") {
+      if (
+        error instanceof vscode.FileSystemError &&
+        error.code === "FileNotFound"
+      ) {
         return { content: "", exists: false };
       }
       throw error;
@@ -1047,20 +1159,29 @@ export class MessageHandlerService {
     return Buffer.from(buffer).toString("utf8");
   }
 
-  private async captureDirectorySnapshot(uri: vscode.Uri): Promise<string | undefined> {
+  private async captureDirectorySnapshot(
+    uri: vscode.Uri
+  ): Promise<string | undefined> {
     try {
       const stat = await vscode.workspace.fs.stat(uri);
       if (!(stat.type & vscode.FileType.Directory)) {
         return undefined;
       }
     } catch (error) {
-      if (error instanceof vscode.FileSystemError && error.code === 'FileNotFound') {
+      if (
+        error instanceof vscode.FileSystemError &&
+        error.code === "FileNotFound"
+      ) {
         return undefined;
       }
       throw error;
     }
 
-    const entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }> = [];
+    const entries: Array<{
+      path: string;
+      type: "file" | "directory";
+      content?: string;
+    }> = [];
     await this.collectDirectoryEntries(uri, uri, entries);
     return JSON.stringify(entries);
   }
@@ -1068,13 +1189,17 @@ export class MessageHandlerService {
   private async collectDirectoryEntries(
     baseUri: vscode.Uri,
     currentUri: vscode.Uri,
-    entries: Array<{ path: string; type: 'file' | 'directory'; content?: string }>
+    entries: Array<{
+      path: string;
+      type: "file" | "directory";
+      content?: string;
+    }>
   ): Promise<void> {
     const relative = path
       .relative(baseUri.fsPath, currentUri.fsPath)
-      .replace(/\\/g, '/');
-    if (relative && relative !== '') {
-      entries.push({ path: relative, type: 'directory' });
+      .replace(/\\/g, "/");
+    if (relative && relative !== "") {
+      entries.push({ path: relative, type: "directory" });
     }
 
     const children = await vscode.workspace.fs.readDirectory(currentUri);
@@ -1086,11 +1211,11 @@ export class MessageHandlerService {
         const content = await vscode.workspace.fs.readFile(childUri);
         const relativeChild = path
           .relative(baseUri.fsPath, childUri.fsPath)
-          .replace(/\\/g, '/');
+          .replace(/\\/g, "/");
         entries.push({
           path: relativeChild,
-          type: 'file',
-          content: Buffer.from(content).toString('base64'),
+          type: "file",
+          content: Buffer.from(content).toString("base64"),
         });
       }
     }
@@ -1115,7 +1240,10 @@ export class MessageHandlerService {
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when the operation completes.
    */
-  private async handleNewChat(message: ChatMessage | undefined, panel: vscode.Webview): Promise<void> {
+  private async handleNewChat(
+    message: ChatMessage | undefined,
+    panel: vscode.Webview
+  ): Promise<void> {
     const session = this.chatHistoryService.createSession(message?.title);
     panel.postMessage({
       type: "chat:new-response",
@@ -1152,7 +1280,9 @@ export class MessageHandlerService {
       await vscode.window.showTextDocument(uri);
     } catch (error) {
       console.error("Error opening file:", error);
-      vscode.window.showErrorMessage(`Failed to open file: ${message?.filePath ?? "unknown"}`);
+      vscode.window.showErrorMessage(
+        `Failed to open file: ${message?.filePath ?? "unknown"}`
+      );
     }
   }
 
@@ -1164,7 +1294,7 @@ export class MessageHandlerService {
    */
   setChatPanelVisibility(visible: boolean): void {
     this.statusBarService.setChatPanelVisibility(visible);
-    
+
     // show diff buttons only when the panel is visible and there are tracked changes
     if (visible && this.diffService.hasChanges()) {
       const totalFiles = this.diffService.getActiveDiffFiles().length;
@@ -1201,12 +1331,122 @@ export class MessageHandlerService {
     this.diffService.dispose();
     this.contextMessageService.clearAll();
     this.mcpService.reset();
-    
+
     if (this.currentAbortController) {
       this.currentAbortController.abort();
       this.currentAbortController = null;
     }
-    
+
     console.log("[PayPilot] MessageHandlerService disposed");
+  }
+
+  /**
+   * Public method for ToolExecutionServer to notify tool activity.
+   * Reuses the existing notifyToolActivity infrastructure to ensure
+   * consistent UI updates and state tracking.
+   *
+   * @param toolName - The name of the tool being invoked
+   * @param toolArgs - The arguments passed to the tool
+   * @param context - The tool context (file state, operation, etc.)
+   * @param panel - The webview panel to send notifications to
+   */
+  public notifyToolActivityExternal(
+    toolName: string,
+    toolArgs: any,
+    context:
+      | {
+          uri: vscode.Uri;
+          operation: FileOperation;
+          originalContent: string;
+        }
+      | undefined,
+    panel: vscode.Webview
+  ): void {
+    // Create a mock LanguageModelToolCallPart to match the expected interface
+    const mockCall = {
+      name: toolName,
+      input: toolArgs,
+      callId: `external-${Date.now()}-${Math.random()}`,
+    } as vscode.LanguageModelToolCallPart;
+
+    // Call the existing private method - this handles both UI and state tracking
+    this.notifyToolActivity(mockCall, panel, context);
+  }
+
+  /**
+   * Public method for ToolExecutionServer to apply tool side effects.
+   * Reuses the existing applyToolSideEffects infrastructure.
+   *
+   * @param context - The tool context with file state and operation
+   * @param toolName - The name of the tool that was executed
+   * @param executionResult - The result from tool execution
+   * @param panel - The webview panel to send notifications to
+   */
+  public async applyToolSideEffectsExternal(
+    context: {
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
+    },
+    toolName: string,
+    executionResult: any,
+    panel: vscode.Webview
+  ): Promise<void> {
+    // Create mock objects to match the expected interface
+    const mockCall = {
+      name: toolName,
+      input: { path: context.uri.fsPath },
+      callId: `external-${Date.now()}-${Math.random()}`,
+    } as vscode.LanguageModelToolCallPart;
+
+    const mockResult = {
+      content: [
+        new vscode.LanguageModelTextPart(
+          executionResult.success
+            ? executionResult.message || "Success"
+            : executionResult.error || "Unknown error"
+        ),
+      ],
+    } as vscode.LanguageModelToolResult;
+
+    // Call the existing private method - this handles diff tracking and notifications
+    await this.applyToolSideEffects(context, mockCall, mockResult, panel);
+  }
+
+  /**
+   * Expose DiffService for ToolExecutionServer.
+   * ToolExecutionServer needs access to calculate diffs and track changes.
+   */
+  public getDiffServiceForTools(): DiffService {
+    return this.diffService;
+  }
+
+  /**
+   * Expose prepareToolContext for ToolExecutionServer.
+   * This allows ToolExecutionServer to use the same context preparation logic.
+   */
+  public async prepareToolContextExternal(
+    toolName: string,
+    toolArgs: any
+  ): Promise<
+    | {
+        uri: vscode.Uri;
+        operation: FileOperation;
+        originalContent: string;
+        isDirectory?: boolean;
+        directorySnapshot?: string;
+      }
+    | undefined
+  > {
+    // Create a mock call to reuse the existing prepareToolContext logic
+    const mockCall = {
+      name: toolName,
+      input: toolArgs,
+      callId: `external-${Date.now()}`,
+    } as vscode.LanguageModelToolCallPart;
+
+    return await this.prepareToolContext(mockCall);
   }
 }

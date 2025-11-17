@@ -11,6 +11,14 @@ import { ModelInfo } from "./types";
  * Get all available VS Code language models
  * @returns Promise<ModelInfo[]> Array of available models
  */
+const SUPPORTED_VSCODE_FAMILIES = new Set([
+  "gpt-4o",
+  "gpt-4o-mini",
+  "o1",
+  "o1-mini",
+  "claude-3-5-sonnet",
+]);
+
 export async function getVSCodeModels(): Promise<ModelInfo[]> {
   try {
     console.log('[PayPilot] Loading available language models...');
@@ -25,16 +33,18 @@ export async function getVSCodeModels(): Promise<ModelInfo[]> {
     }
 
     // Convert VS Code model objects to ModelInfo format which the React UI expects
-    const models: ModelInfo[] = vscodeModels.map(model => ({
-      id: model.id,
-      name: model.name || model.family || 'Unknown Model',
-      vendor: model.vendor,
-      family: model.family,
-      version: model.version,
-      maxTokens: model.maxInputTokens,
-      description: `VS Code language model (${model.vendor})`,
-      isExternal: false
-    }));
+    const models: ModelInfo[] = vscodeModels
+      .filter((model) => SUPPORTED_VSCODE_FAMILIES.has(model.family ?? ""))
+      .map(model => ({
+        id: model.id,
+        name: model.name || model.family || 'Unknown Model',
+        vendor: model.vendor,
+        family: model.family,
+        version: model.version,
+        maxTokens: model.maxInputTokens,
+        description: `VS Code language model (${model.vendor})`,
+        isExternal: false
+      }));
 
     return models.sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {

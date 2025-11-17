@@ -25,139 +25,55 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   };
 
   /**
-   * Format text content with markdown support
+   * Render lightweight markdown (bold, italic, inline code, headings, line breaks)
    */
-  const formatTextContent = (text: string) => {
-    // Handle markdown formatting in order of priority
-    const parts: React.ReactNode[] = [];
-    const lines = text.split('\n');
-    
-    lines.forEach((line, lineIndex) => {
-      if (lineIndex > 0) {
-        parts.push(<br key={`br-${lineIndex}`} />);
-      }
-      
-      // Process the line for markdown
-      let processedLine = line;
-      const tokens: Array<{ type: string; content: string; start: number; end: number }> = [];
-      
-      // Find bold text (**text**)
-      const boldRegex = /\*\*(.*?)\*\*/g;
-      let boldMatch: RegExpExecArray | null;
-      while ((boldMatch = boldRegex.exec(line)) !== null) {
-        tokens.push({
-          type: 'bold',
-          content: boldMatch[1],
-          start: boldMatch.index,
-          end: boldMatch.index + boldMatch[0].length
-        });
-      }
-      
-      // Find headings (## text)
-      const headingRegex = /^(#{1,6})\s+(.+)$/;
-      const headingMatch = headingRegex.exec(line.trim());
-      if (headingMatch) {
-        const level = headingMatch[1].length;
-        tokens.push({
-          type: `heading${level}` as any,
-          content: headingMatch[2],
-          start: 0,
-          end: line.length
-        });
-      }
-      
-      // Find italic text (*text*)
-      const italicRegex = /\*([^*]+?)\*/g;
-      let italicMatch: RegExpExecArray | null;
-      while ((italicMatch = italicRegex.exec(line)) !== null) {
-        // Make sure it's not part of a bold (avoid conflict with **)
-        const isPartOfBold = tokens.some(token => 
-          token.type === 'bold' && italicMatch!.index >= token.start - 2 && italicMatch!.index <= token.end + 2
-        );
-        if (!isPartOfBold) {
-          tokens.push({
-            type: 'italic',
-            content: italicMatch[1],
-            start: italicMatch.index,
-            end: italicMatch.index + italicMatch[0].length
-          });
-        }
-      }
-      
-      // Find inline code (`code`)
-      const inlineCodeRegex = /`([^`]+?)`/g;
-      let codeMatch: RegExpExecArray | null;
-      while ((codeMatch = inlineCodeRegex.exec(line)) !== null) {
-        tokens.push({
-          type: 'code',
-          content: codeMatch[1],
-          start: codeMatch.index,
-          end: codeMatch.index + codeMatch[0].length
-        });
-      }
-      
-      // Sort tokens by start position
-      tokens.sort((a, b) => a.start - b.start);
-      
-      // Build the formatted line
-      let lastIndex = 0;
-      const formattedParts: React.ReactNode[] = [];
-      
-      tokens.forEach((token, tokenIndex) => {
-        // Add text before this token
-        if (token.start > lastIndex) {
-          formattedParts.push(line.slice(lastIndex, token.start));
-        }
-        
-        // Add the formatted token
-        const key = `${lineIndex}-${tokenIndex}`;
-        switch (token.type) {
-          case 'bold':
-            formattedParts.push(<strong key={key}>{token.content}</strong>);
-            break;
-          case 'italic':
-            formattedParts.push(<em key={key}>{token.content}</em>);
-            break;
-          case 'code':
-            formattedParts.push(<code key={key} className="inline-code">{token.content}</code>);
-            break;
-          case 'heading1':
-            formattedParts.push(<h1 key={key} className="heading heading-1">{token.content}</h1>);
-            break;
-          case 'heading2':
-            formattedParts.push(<h2 key={key} className="heading heading-2">{token.content}</h2>);
-            break;
-          case 'heading3':
-            formattedParts.push(<h3 key={key} className="heading heading-3">{token.content}</h3>);
-            break;
-          case 'heading4':
-            formattedParts.push(<h4 key={key} className="heading heading-4">{token.content}</h4>);
-            break;
-          case 'heading5':
-            formattedParts.push(<h5 key={key} className="heading heading-5">{token.content}</h5>);
-            break;
-          case 'heading6':
-            formattedParts.push(<h6 key={key} className="heading heading-6">{token.content}</h6>);
-            break;
-        }
-        
-        lastIndex = token.end;
-      });
-      
-      // Add remaining text
-      if (lastIndex < line.length) {
-        formattedParts.push(line.slice(lastIndex));
-      }
-      
-      // If no formatting was found, just add the plain text
-      if (formattedParts.length === 0) {
-        formattedParts.push(line);
-      }
-      
-      parts.push(...formattedParts);
+  const renderMarkdown = (text: string) => {
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+
+    const codePlaceholders: string[] = [];
+    let html = escapeHtml(text);
+
+    html = html.replace(/`([^`]+)`/g, (_, code) => {
+      const idx = codePlaceholders.push(code) - 1;
+      return `__CODE_PLACEHOLDER_${idx}__`;
     });
-    
-    return parts;
+
+    const headingLevels: Array<{ regex: RegExp; level: number }> = [
+      { regex: /^######\s?(.*)$/gm, level: 6 },
+      { regex: /^#####\s?(.*)$/gm, level: 5 },
+      { regex: /^####\s?(.*)$/gm, level: 4 },
+      { regex: /^###\s?(.*)$/gm, level: 3 },
+      { regex: /^##\s?(.*)$/gm, level: 2 },
+      { regex: /^#\s?(.*)$/gm, level: 1 },
+    ];
+
+    headingLevels.forEach(({ regex, level }) => {
+      html = html.replace(regex, (_match, content) => {
+        const cls = `heading heading-${level}`;
+        return `<h${level} class="${cls}">${content.trim()}</h${level}>`;
+      });
+    });
+
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/(^|[^*])\*([^*]+)\*/g, (_match, prefix, content) => {
+      return `${prefix}<em>${content}</em>`;
+    });
+
+    html = html.replace(/(?:\r\n|\r|\n)/g, '<br />');
+    html = html.replace(/(<\/h[1-6]>)<br \/>/g, '$1');
+
+    codePlaceholders.forEach((code, index) => {
+      html = html.replace(
+        `__CODE_PLACEHOLDER_${index}__`,
+        `<code class="inline-code">${code}</code>`
+      );
+    });
+
+    return <span dangerouslySetInnerHTML={{ __html: html }} />;
   };
 
   /**
@@ -279,7 +195,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
         if (part.type === 'text') {
           return (
             <div key={index} className="message-text">
-              {formatTextContent(part.content)}
+              {renderMarkdown(part.content)}
             </div>
           );
         } else {

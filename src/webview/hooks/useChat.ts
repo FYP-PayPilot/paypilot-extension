@@ -18,6 +18,7 @@ export const useChat = () => {
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>(''); // Start empty until models load
+  const [selectedModelSource, setSelectedModelSource] = useState<'vscode' | 'backend' | undefined>(undefined);
   const hasAutoSelectedModel = useRef(false); // Track if we've done initial auto-selection
 
   // MCP state
@@ -215,12 +216,14 @@ export const useChat = () => {
       prompt: prompt.trim(),
         mode,
         model: selectedModel,
+        source: selectedModelSource,
         contextFiles: state.contextFiles, // Include context files in message
     });
     },
     [
       state.isLoading,
       selectedModel,
+      selectedModelSource,
       postMessage,
       generateMessageId,
       state.contextFiles,
@@ -268,13 +271,16 @@ export const useChat = () => {
 
   // Handle model selection
   const handleModelChange = useCallback((modelId: string) => {
+    const model = availableModels.find((m) => m.id === modelId);
     setSelectedModel(modelId);
+    setSelectedModelSource(model?.source ?? undefined);
     postMessage({
       type: 'model:change',
-      model: modelId
+      model: modelId,
+      source: model?.source ?? undefined,
     });
     },
-    [postMessage]
+    [postMessage, availableModels]
   );
 
   // Handle context file requests
@@ -688,6 +694,7 @@ export const useChat = () => {
               
             if (preferredModel) {
               setSelectedModel(preferredModel.id);
+              setSelectedModelSource(preferredModel.source ?? undefined);
             }
             hasAutoSelectedModel.current = true;
           }

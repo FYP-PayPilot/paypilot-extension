@@ -34,7 +34,14 @@ export async function getBackendModels(): Promise<ModelInfo[]> {
     console.log(`[PayPilot] Models received from server: (${models.length})`, 
       models.map(m => ({ id: m.id, name: m.name, vendor: m.vendor })));
 
-    return models.sort((a, b) => a.name.localeCompare(b.name));
+    const allowedBackendIds = new Set([
+      "deepseek/deepseek-chat-v3.1:free",
+      "nvidia/nemotron-nano-9b-v2:free",
+    ]);
+
+    return models
+      .filter((model) => allowedBackendIds.has(model.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     console.warn('[PayPilot] Failed to load language models from FastAPI server:', error);
     

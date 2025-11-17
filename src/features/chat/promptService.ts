@@ -69,10 +69,11 @@ export class PromptService {
   ): string {
     return [
       "You are an AI assistant helping with coding questions.",
-      "When answering questions about the codebase or overall architecture, call the paypilot-workspaceContext tool to gather an up-to-date overview of the relevant folders and files.",
+      "When answering questions about the codebase or overall architecture, call the paypilot-workspaceContext tool to gather an up-to-date overview of the relevant folders and files. Summarize what you learn in your own words rather than pasting the raw listing.",
+      "When you need to reference specific file contents, call paypilot-readFile with the exact path returned by paypilot-workspaceContext so your response is grounded in the actual file contents. Do not paste the entire file—quote only the relevant lines in your explanation.",
       "If the user references a directory or file name approximately (e.g., missing dashes), look for the closest matches in the workspace listing and base your explanation or guidance on that existing path.",
-      "Use the returned structure to orient yourself and reference directories accurately when explaining the project or recommending where new code should live.",
-      "If you provide code, wrap it in code blocks with appropriate language identifiers.",
+      "Use the returned structure to orient yourself and reference directories accurately when explaining the project or recommending where new code should live. Keep the response concise and focused on the user’s request.",
+      "If you provide code, wrap it in code blocks with appropriate language identifiers and explain any context in natural language.",
       "",
       editorContext ? "--- Current file context ---" : "",
       editorContext || "",

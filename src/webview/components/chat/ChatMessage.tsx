@@ -227,10 +227,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     );
   }
 
+  const assistantCardClass = "message message-assistant message-card";
+
   // Handle code applied state
   if (message.codeApplied) {
     return (
-      <div className="message message-assistant">
+      <div className={assistantCardClass}>
         <CodeAppliedCard
           fileName={message.codeApplied.fileName}
           filePath={message.codeApplied.filePath}
@@ -246,7 +248,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
   if (message.toolActivity) {
     return (
-      <div className="message message-assistant">
+      <div className={assistantCardClass}>
         <ToolActivityCard
           title={message.toolActivity.title}
           detail={message.toolActivity.detail}
@@ -260,7 +262,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
 
   if (message.multiFileEditSummary) {
     return (
-      <div className="message message-assistant">
+      <div className={assistantCardClass}>
         <MultiFileEditSummary
           changes={message.multiFileEditSummary.changes}
           totalLinesAdded={message.multiFileEditSummary.totalLinesAdded}

@@ -1,3 +1,17 @@
+/* =============================================================================
+   PayPilot Webview Styles
+   -----------------------------------------------------------------------------
+   This file is organized into themed sections so every part of the chat UI can
+   be located quickly. Each section explains what part of the interface it owns
+   so future maintainers have context before making changes.
+   ========================================================================== */
+
+/* ==========================================================================
+   Theme Tokens & Base Reset
+   --------------------------------------------------------------------------
+   Design system primitives mirrored from the active VS Code theme plus the
+   universal layout reset used throughout the webview.
+   ========================================================================== */
 :root {
   /* VS Code theme variables */
   --foreground: var(--vscode-foreground);
@@ -59,6 +73,12 @@ html, body, #root {
   background: var(--background);
 }
 
+/* ==========================================================================
+   Chat Frame & Primary Controls
+   --------------------------------------------------------------------------
+   Structural containers plus the top toolbar used to create chats or load
+   history entries.
+   ========================================================================== */
 /* Chat Container */
 .chat-container {
   height: 100vh;
@@ -115,6 +135,12 @@ html, body, #root {
   }
 }
 
+/* ==========================================================================
+   Chat History & Confirmation Flows
+   --------------------------------------------------------------------------
+   Modal shells for browsing chat sessions and the destructive confirmation
+   dialogs used when cleaning up stored history.
+   ========================================================================== */
 /* Chat History Modal */
 .modal-overlay {
   position: fixed;
@@ -353,6 +379,12 @@ html, body, #root {
   background: color-mix(in srgb, var(--accent) 85%, black 15%);
 }
 
+/* ==========================================================================
+   Conversation Surface & Empty States
+   --------------------------------------------------------------------------
+   Scrollable container for streamed chat content plus the friendly empty
+   placeholder when no conversation exists yet.
+   ========================================================================== */
 .messages-container {
   flex: 1;
   overflow-y: auto;
@@ -402,7 +434,11 @@ html, body, #root {
   opacity: 0.8;
 }
 
-/* Messages */
+/* ==========================================================================
+   Message Bubbles & Copy Helpers
+   --------------------------------------------------------------------------
+   Styles for assistant/user bubbles, Markdown formatting, and streaming cues.
+   ========================================================================== */
 .message {
   max-width: 85%;
   padding: var(--space-md) var(--space-lg);
@@ -429,6 +465,18 @@ html, body, #root {
   background: var(--bubble-assistant);
   align-self: flex-start;
   border-color: var(--border);
+}
+
+.message-card {
+  background: transparent;
+  border-color: transparent;
+  padding: 0;
+}
+
+.message-card .code-applied-card,
+.message-card .tool-activity-card,
+.message-card .multi-file-edit-summary {
+  margin: 0;
 }
 
 .message-text {
@@ -512,7 +560,7 @@ html, body, #root {
   50% { opacity: 0.3; }
 }
 
-/* Code Blocks */
+/* Rich code block rendering with copy affordances */
 .code-block-container {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
@@ -572,6 +620,12 @@ html, body, #root {
   font-family: inherit;
 }
 
+/* ==========================================================================
+   Composer & Footer Controls
+   --------------------------------------------------------------------------
+   Input surface, suggested prompts, selectors, and responsive adjustments for
+   the send controls.
+   ========================================================================== */
 /* Chat Footer */
 .chat-footer {
   position: sticky;
@@ -1045,7 +1099,7 @@ html, body, #root {
   justify-content: center;
 }
 
-/* Button Components */
+/* Shared button primitives used across composer UI */
 .btn {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -1076,7 +1130,7 @@ html, body, #root {
   pointer-events: none;
 }
 
-/* Button Variants */
+/* Intent-based button variants */
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -1115,7 +1169,7 @@ html, body, #root {
   color: var(--foreground);
 }
 
-/* Button Sizes */
+/* Button sizing scale */
 .btn-sm {
   padding: var(--space-xs) var(--space-sm);
   font-size: 12px;
@@ -1227,11 +1281,11 @@ html, body, #root {
   font-family: inherit;
 }
 
-/* Icon Component */
-.icon {
-  flex-shrink: 0;
-}
-
+/* ==========================================================================
+   Global Utilities & Interaction Helpers
+   --------------------------------------------------------------------------
+   Scrollbars, focus outlines, and shared transitions applied across the UI.
+   ========================================================================== */
 /* Scrollbar styling */
 .messages-container::-webkit-scrollbar {
   width: 6px;
@@ -1250,7 +1304,7 @@ html, body, #root {
   background: var(--border-hover);
 }
 
-/* Additional polish */
+/* Minor component tweaks */
 .attach-btn {
   border-radius: var(--radius-md) !important;
 }
@@ -1274,60 +1328,38 @@ html, body, #root {
   transition-timing-function: ease;
 }
 
-/* Code Applied Card */
-.code-applied-card {
+/* ==========================================================================
+   Assistant Output Cards
+   --------------------------------------------------------------------------
+   Reusable card shells for code-applied events and tool activity logs.
+   ========================================================================== */
+/* Assistant Card Base */
+.code-applied-card,
+.tool-activity-card {
   border-radius: var(--radius-lg);
   padding: var(--space-md);
-  background: var(--panel-bg);
+  background: var(--background);
+  border: 1px solid var(--border);
   margin: var(--space-sm) 0;
+}
+
+/* Code Applied Card */
+.code-applied-card {
   cursor: pointer;
   transition: background-color 0.15s ease;
 }
 
 .code-applied-card:hover {
   background: var(--surface-hover);
-}
-
-/* Tool Activity Card */
-.tool-activity-card {
-  border-radius: var(--radius-lg);
-  padding: var(--space-md);
-  background: var(--panel-bg);
-  margin: var(--space-sm) 0;
-  border: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-xs);
-}
-
-.tool-activity-card--interactive {
-  cursor: pointer;
-}
-
-.tool-activity-card--interactive:hover {
   border-color: var(--border-hover);
-  background: var(--surface-hover);
-}
-
-.tool-activity-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.tool-activity-title {
-  font-weight: 600;
-}
-
-.tool-activity-detail {
-  font-size: 12px;
-  color: var(--muted);
 }
 
 .code-applied-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
   margin-bottom: var(--space-sm);
 }
 
@@ -1347,7 +1379,14 @@ html, body, #root {
 .diff-stats {
   display: flex;
   gap: var(--space-sm);
+  margin-left: auto;
   font-size: 12px;
+}
+
+.file-operation {
+  margin-left: var(--space-sm);
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .lines-added {
@@ -1385,7 +1424,7 @@ html, body, #root {
   line-height: 1.4;
 }
 
-/* Working Indicator */
+/* Working Indicator used while the assistant is busy */
 .working-indicator {
   display: flex;
   align-items: center;
@@ -1411,6 +1450,11 @@ html, body, #root {
   }
 }
 
+/* ==========================================================================
+   MCP Server Dropdown & Configuration
+   --------------------------------------------------------------------------
+   Styles the server picker and supporting actions for configuring MCP.
+   ========================================================================== */
 /* MCP Dropdown Styles */
 .mcp-dropdown-menu {
   position: absolute;
@@ -1495,11 +1539,9 @@ html, body, #root {
 
 /* Enhanced Tool Activity Card Styles */
 .tool-activity-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: var(--space-md);
-  margin: var(--space-sm) 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
   transition: all 0.2s ease;
 }
 
@@ -1516,6 +1558,7 @@ html, body, #root {
 .tool-activity-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-sm);
   margin-bottom: var(--space-xs);
 }
@@ -1527,7 +1570,7 @@ html, body, #root {
 
 .tool-activity-title {
   flex: 1;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--foreground);
 }
 
@@ -1547,6 +1590,11 @@ html, body, #root {
   word-break: break-all;
 }
 
+/* ==========================================================================
+   Multi-File Edit Summary
+   --------------------------------------------------------------------------
+   Data-dense summary card used when multiple files were touched in a run.
+   ========================================================================== */
 /* Multi-File Edit Summary Styles */
 .multi-file-edit-summary {
   background: var(--surface);
@@ -1561,6 +1609,8 @@ html, body, #root {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-md);
   margin-bottom: var(--space-md);
   padding-bottom: var(--space-sm);
   border-bottom: 1px solid var(--border);
@@ -1581,6 +1631,7 @@ html, body, #root {
   align-items: center;
   gap: var(--space-md);
   font-size: 12px;
+  margin-left: auto;
 }
 
 .file-count {
@@ -1661,7 +1712,7 @@ html, body, #root {
 .file-change-header {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: var(--space-md);
 }
 
 .operation-badge {
@@ -1683,18 +1734,11 @@ html, body, #root {
   flex: 1;
 }
 
-.file-path {
-  font-size: 11px;
-  color: var(--muted);
-  font-family: var(--font-editor);
-  word-break: break-all;
-  margin-left: var(--space-lg);
-}
-
 .line-changes {
   display: flex;
   gap: var(--space-sm);
   margin-left: var(--space-lg);
+  margin-top: var(--space-xs);
   font-size: 11px;
   font-weight: 500;
 }

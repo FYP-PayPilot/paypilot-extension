@@ -11,6 +11,7 @@ export interface ChatQueryMessage {
   prompt: string;                      // User's input message
   mode: 'agent' | 'ask';              // Response mode: code generation vs Q&A
   model: string;                       // Selected model identifier
+  source?: 'vscode' | 'backend';       // Source of the model to route ask mode correctly
   contextFiles?: ContextFile[];
 }
 

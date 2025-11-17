@@ -133,7 +133,8 @@ export class MessageHandlerService {
 
       // Get the specific language model to use
       let selectedModel: vscode.LanguageModelChat | null = null;
-      let modelId: string | undefined = msg?.model;
+      let backendModelId: string | undefined =
+        msg?.source === "backend" ? msg.model : undefined;
       if (mode === "agent") {
         // Agent mode: Get VS Code model
         if (msg?.model) {
@@ -150,7 +151,6 @@ export class MessageHandlerService {
             return;
           }
           selectedModel = await getLanguageModel(vscodeModels[0].id);
-          modelId = vscodeModels[0].id;
         }
 
         if (!selectedModel) {
@@ -161,17 +161,26 @@ export class MessageHandlerService {
           return;
         }
       } else {
-        // Ask mode: Get backend model ID
-        if (!modelId) {
-          const backendModels = await getBackendModels();
-          if (backendModels.length === 0) {
-            panel.postMessage({
-              type: "chat:error",
-              error: "No language models available from backend. Please ensure the FastAPI server is running.",
-            });
-            return;
+        // Ask mode: Prefer VS Code model if available, otherwise fall back to backend.
+        if (msg?.model) {
+          selectedModel = await getLanguageModel(msg.model);
+          if (selectedModel) {
+            backendModelId = undefined;
           }
-          modelId = backendModels[0].id;
+        }
+
+        if (!selectedModel) {
+          if (!backendModelId) {
+            const backendModels = await getBackendModels();
+            if (backendModels.length === 0) {
+              panel.postMessage({
+                type: "chat:error",
+                error: "No language models available from backend. Please ensure the FastAPI server is running.",
+              });
+              return;
+            }
+            backendModelId = backendModels[0].id;
+          }
         }
       }
 
@@ -207,8 +216,10 @@ export class MessageHandlerService {
 
       if (mode === "agent") {
         await this.handleAgentMode(selectedModel!, composed, panel, abortController);
+      } else if (selectedModel) {
+        await this.handleAskModeVSCode(selectedModel, composed, panel, abortController);
       } else {
-        await this.handleAskMode(modelId!, composed, panel, abortController);
+        await this.handleAskModeBackend(backendModelId!, composed, panel, abortController);
       }
     } catch (error) {
       this.currentAbortController = null;
@@ -243,6 +254,14 @@ export class MessageHandlerService {
     const conversation: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(composed),
     ];
+    const initialWorkspaceContext = await this.fetchWorkspaceContextSnapshot(panel);
+    if (initialWorkspaceContext) {
+      conversation.push(
+        vscode.LanguageModelChatMessage.User(
+          `Workspace context snapshot:\n${initialWorkspaceContext}`
+        )
+      );
+    }
     this.agentChangeLog = [];
     const agentPlan: string[] = [];
     let planSent = false;
@@ -388,14 +407,14 @@ export class MessageHandlerService {
   }
 
   /**
-   * Execute ask mode: stream the model's text back to the chat UI via FastAPI backend.
+   * Execute ask mode via the FastAPI backend: stream the model's text back to the chat UI.
    * @param modelId The model ID to use for the backend request.
    * @param composed The fully composed prompt to send to the model.
    * @param panel The webview panel to communicate back to.
    * @param abortController Controller to allow cancellation of the request.
    * @returns Promise that resolves when processing completes.
    */
-  private async handleAskMode(
+  private async handleAskModeBackend(
     modelId: string,
     composed: string,
     panel: vscode.Webview,
@@ -420,10 +439,15 @@ export class MessageHandlerService {
       const editorContext = this.contextService.getActiveEditorContext(maxContextChars);
       const fileContext = this.contextService.buildContextContent();
 
+      const workspaceContextText = await this.fetchWorkspaceContextSnapshot(panel);
+      const backendPrompt = workspaceContextText
+        ? `${composed}\n\n--- Workspace Context ---\n${workspaceContextText}`
+        : composed;
+
       // Stream from FastAPI backend
       await streamChatUI(
         modelId,
-        composed,
+        backendPrompt,
         fileContext,
         editorContext,
         (token: string) => {
@@ -453,6 +477,142 @@ export class MessageHandlerService {
       cancellationTokenSource.dispose();
       signal.removeEventListener("abort", listener);
     }
+  }
+
+  /**
+   * Execute ask mode directly against a VS Code language model. Streams tokens
+   * to the chat UI similar to the backend implementation but without invoking workspace tools.
+   */
+  private async handleAskModeVSCode(
+    selectedModel: vscode.LanguageModelChat,
+    composed: string,
+    panel: vscode.Webview,
+    abortController: AbortController
+  ): Promise<void> {
+    console.log("[PayPilot] Starting Ask Mode via VS Code language model");
+
+    const conversation: vscode.LanguageModelChatMessage[] = [
+      vscode.LanguageModelChatMessage.User(composed),
+    ];
+    const cancellationTokenSource = new vscode.CancellationTokenSource();
+    const { signal } = abortController;
+    const listener = () => {
+      cancellationTokenSource.cancel();
+    };
+    signal.addEventListener("abort", listener);
+
+    let aggregatedResponse = "";
+
+    try {
+      while (true) {
+        const response = await selectedModel.sendRequest(
+          conversation,
+          {
+            justification: "PayPilot ask mode request",
+            tools: this.getAskModeTools(),
+            toolMode: vscode.LanguageModelChatToolMode.Auto,
+          },
+          cancellationTokenSource.token
+        );
+
+        const toolCalls: vscode.LanguageModelToolCallPart[] = [];
+        const textParts: vscode.LanguageModelTextPart[] = [];
+
+        for await (const part of response.stream) {
+          if (cancellationTokenSource.token.isCancellationRequested) {
+            throw new Error("Request cancelled");
+          }
+
+          if (part instanceof vscode.LanguageModelTextPart) {
+            aggregatedResponse += part.value;
+            textParts.push(part);
+            panel.postMessage({ type: "chat:stream", token: part.value });
+          } else if (part instanceof vscode.LanguageModelToolCallPart) {
+            toolCalls.push(part);
+          }
+        }
+
+        if (textParts.length > 0) {
+          conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
+        }
+
+        if (toolCalls.length === 0) {
+          panel.postMessage({ type: "chat:done", text: aggregatedResponse });
+          break;
+        }
+
+        for (const call of toolCalls) {
+          try {
+            const resultPart = await this.invokeToolCall(call, panel);
+            conversation.push(vscode.LanguageModelChatMessage.Assistant([call]));
+            conversation.push(vscode.LanguageModelChatMessage.User([resultPart]));
+          } catch (toolError) {
+            console.error("[PayPilot] Ask mode tool invocation failed", toolError);
+            panel.postMessage({
+              type: "chat:error",
+              error:
+                toolError instanceof Error ? toolError.message : String(toolError),
+            });
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      if (
+        signal.aborted ||
+        (error instanceof Error && error.message === "Request cancelled")
+      ) {
+        console.log("[PayPilot] Ask mode (VS Code) cancelled by user");
+        panel.postMessage({ type: "chat:stopped" });
+      } else {
+        console.error("Error in VS Code ask mode:", error);
+        panel.postMessage({
+          type: "chat:error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    } finally {
+      this.currentAbortController = null;
+      cancellationTokenSource.dispose();
+      signal.removeEventListener("abort", listener);
+    }
+  }
+
+  private async fetchWorkspaceContextSnapshot(panel: vscode.Webview): Promise<string> {
+    try {
+      panel.postMessage({
+        type: "chat:tool-activity",
+        title: "Gathering workspace context…",
+        operation: "context",
+      });
+      const result = await vscode.lm.invokeTool(WORKSPACE_CONTEXT_TOOL_NAME, {
+        toolInvocationToken: undefined,
+        input: {
+          glob: "**/*",
+          maxFiles: 20,
+          includeText: false,
+        },
+      });
+
+      return result.content
+        .map((part) =>
+          part instanceof vscode.LanguageModelTextPart ? part.value : ""
+        )
+        .join("")
+        .trim();
+    } catch (error) {
+      console.warn(
+        "[PayPilot] Failed to gather workspace context snapshot for backend ask mode:",
+        error
+      );
+      return "";
+    }
+  }
+
+  private getAskModeTools(): vscode.LanguageModelChatTool[] {
+    return this.chatTools.filter(
+      (tool) => tool.name === WORKSPACE_CONTEXT_TOOL_NAME
+    );
   }
 
   private recordAgentChange(entry: string | undefined): void {
@@ -511,13 +671,6 @@ export class MessageHandlerService {
     return [];
   }
 
-  private getAskModeTools(): vscode.LanguageModelChatTool[] {
-    return this.chatTools.filter((tool) =>
-      tool.name === WORKSPACE_CONTEXT_TOOL_NAME ||
-      tool.name === READ_FILE_TOOL_NAME
-    );
-  }
-
   private async invokeToolCall(
     call: vscode.LanguageModelToolCallPart,
     panel: vscode.Webview
@@ -526,7 +679,21 @@ export class MessageHandlerService {
       throw new Error("Invalid tool call: missing name");
     }
 
-    const context = await this.prepareToolContext(call);
+    let context: ToolContext | undefined;
+    try {
+      context = await this.prepareToolContext(call);
+    } catch (error) {
+      console.warn("[PayPilot] Failed to prepare tool context:", error);
+      panel.postMessage({
+        type: "chat:tool-activity",
+        title: "Tool call skipped",
+        detail:
+          error instanceof Error
+            ? error.message
+            : "Unable to resolve workspace path for tool call.",
+      });
+      throw error;
+    }
 
     const result = await vscode.lm.invokeTool(call.name, {
       toolInvocationToken: undefined,
@@ -543,11 +710,20 @@ export class MessageHandlerService {
   }
 
   private async prepareToolContext(call: vscode.LanguageModelToolCallPart): Promise<ToolContext | undefined> {
-    const getTargetPath = () => resolveWorkspacePath((call.input as { path: string }).path);
+    const getTargetPath = () => {
+      const inputPath = (call.input as { path?: string })?.path;
+      if (!inputPath || typeof inputPath !== "string") {
+        return undefined;
+      }
+      return resolveWorkspacePath(inputPath);
+    };
 
     switch (call.name) {
       case CREATE_FILE_TOOL_NAME: {
         const target = getTargetPath();
+        if (!target) {
+          throw new Error("paypilot-createFile requires a valid 'path' input");
+        }
         const { content, exists } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -557,6 +733,9 @@ export class MessageHandlerService {
       }
       case UPDATE_FILE_TOOL_NAME: {
         const target = getTargetPath();
+        if (!target) {
+          throw new Error("paypilot-updateFile requires a valid 'path' input");
+        }
         const { content } = await this.readFileSnapshot(target);
         return {
           uri: target,
@@ -566,6 +745,9 @@ export class MessageHandlerService {
       }
       case DELETE_FILE_TOOL_NAME: {
         const target = getTargetPath();
+        if (!target) {
+          throw new Error("paypilot-deleteFile requires a valid 'path' input");
+        }
         const { content, exists } = await this.readFileSnapshot(target);
         if (!exists) {
           return undefined;
@@ -578,6 +760,9 @@ export class MessageHandlerService {
       }
       case CREATE_DIRECTORY_TOOL_NAME: {
         const target = getTargetPath();
+        if (!target) {
+          throw new Error("paypilot-createDirectory requires a valid 'path' input");
+        }
         const snapshot = await this.captureDirectorySnapshot(target);
         const exists = snapshot !== undefined;
         return {
@@ -590,6 +775,9 @@ export class MessageHandlerService {
       }
       case DELETE_DIRECTORY_TOOL_NAME: {
         const target = getTargetPath();
+        if (!target) {
+          throw new Error("paypilot-deleteDirectory requires a valid 'path' input");
+        }
         const snapshot = await this.captureDirectorySnapshot(target);
         if (!snapshot) {
           return undefined;

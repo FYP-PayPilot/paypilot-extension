@@ -6,6 +6,7 @@
 export interface ModelChangeMessage {
   type: 'model:change';                // Updates selected model
   model: string;                       // New model identifier
+  source?: 'vscode' | 'backend';
 }
 
 /** Sent from useChat hook on mount to load available models */
@@ -29,4 +30,5 @@ export interface ModelInfo {
   maxTokens?: number; // Maximum context length
   description?: string; // Optional description
   isExternal: boolean; // True for external APIs, false for VS Code built-in
+  source?: 'vscode' | 'backend';
 }

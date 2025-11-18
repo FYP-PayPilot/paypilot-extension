@@ -3,9 +3,8 @@ import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
 import { ContextButton } from './ContextButton';
 import { IoSend, IoStop } from 'react-icons/io5';
-import { HiSparkles, HiChevronDown, HiInformationCircle } from 'react-icons/hi2';
+import { HiSparkles, HiChevronDown } from 'react-icons/hi2';
 import { BsQuestionLg } from 'react-icons/bs';
-import { McpServer } from '../../../features/chat/messages';
 import { ModelInfo } from '../../../features/language-model/types';
 import { ContextFile } from '../../../features/context/types';
 
@@ -21,12 +20,8 @@ interface ChatInputProps {
   availableModels: ModelInfo[];
   contextFiles: ContextFile[];
   onAddContext: () => void;
-  mcpEnabled: boolean;
-  onMcpToggle: (enabled: boolean) => void;
-  mcpServers: McpServer[];
-  selectedServers: string[];
-  onServerSelection: (servers: string[]) => void;
-  onMcpInfo: () => void;
+  ragEnabled: boolean;
+  onRagToggle: (enabled: boolean) => void;
 }
 
 /**
@@ -44,12 +39,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   availableModels,
   contextFiles,
   onAddContext,
-  mcpEnabled,
-  onMcpToggle,
-  mcpServers,
-  selectedServers,
-  onServerSelection,
-  onMcpInfo
+  ragEnabled,
+  onRagToggle
 }) => {
   const [inputValue, setInputValue] = useState('');
 
@@ -89,15 +80,11 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  /**
-   * Handle MCP server selection toggle
-   */
-  const handleServerToggle = (serverName: string) => {
-    const newSelection = selectedServers.includes(serverName)
-      ? selectedServers.filter(s => s !== serverName)
-      : [...selectedServers, serverName];
-    onServerSelection(newSelection);
-  };
+  const hasValidModelSelection = availableModels.some((model) => model.id === selectedModel);
+  const selectValue = hasValidModelSelection ? selectedModel : '';
+  const modelDisplayName = hasValidModelSelection
+    ? getModelDisplayName(selectedModel)
+    : (ragEnabled ? 'No backend models' : 'No VS Code models');
 
   const getSuggestedPrompt = () => {
     return mode === 'ask' 
@@ -187,20 +174,27 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <div className="selector-item">
             <div className="selector-wrapper">
               <select
-                value={selectedModel}
+                value={selectValue}
                 onChange={(e) => onModelChange(e.target.value)}
                 title="Select AI model"
                 className="footer-select"
+                disabled={disabled || availableModels.length === 0}
               >
-                {availableModels.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
+                {availableModels.length === 0 ? (
+                  <option value="" disabled>
+                    {ragEnabled ? 'No backend models available' : 'No VS Code models available'}
                   </option>
-                ))}
+                ) : (
+                  availableModels.map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))
+                )}
               </select>
               <div className="selector-display">
                 <span className="selector-text">
-                  {getModelDisplayName(selectedModel)}
+                  {modelDisplayName}
                 </span>
                 <span className="selector-chevron">
                   <HiChevronDown />
@@ -209,42 +203,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           </div>
 
-          {/* MCP Selector */}
+          {/* RAG Toggle */}
           <div className="selector-item">
-            <div className="selector-wrapper">
-              <select
-                value=""
-                onChange={(e) => {
-                  if (e.target.value) {
-                    handleServerToggle(e.target.value);
-                    e.target.value = ""; // Reset select
-                  }
-                }}
-                title="Select MCP servers"
-                className="footer-select"
-              >
-                <option value="">Select MCP servers...</option>
-                {mcpServers.map((server) => (
-                  <option key={server.name} value={server.name}>
-                    {selectedServers.includes(server.name) ? '✓ ' : ''}{server.name} ({server.type})
-                  </option>
-                ))}
-                {mcpServers.length === 0 && (
-                  <option value="" disabled>No MCP servers configured</option>
-                )}
-              </select>
-              <div className="selector-display">
-                <span className="selector-icon">
-                  <HiInformationCircle />
-                </span>
-                <span className="selector-text">
-                  MCP ({selectedServers.length}/{mcpServers.length})
-                </span>
-                <span className="selector-chevron">
-                  <HiChevronDown />
-                </span>
-              </div>
-            </div>
+            <button
+              type="button"
+              className={`rag-toggle-button ${ragEnabled ? 'active' : ''}`}
+              onClick={() => onRagToggle(!ragEnabled)}
+              disabled={disabled}
+              title="Toggle retrieval augmented generation"
+            >
+              <span className="rag-toggle-label">RAG</span>
+              <span className="rag-toggle-pill" aria-hidden="true">
+                <span className={`rag-toggle-switch ${ragEnabled ? 'on' : ''}`} />
+              </span>
+              <span className="rag-toggle-state">{ragEnabled ? 'On' : 'Off'}</span>
+            </button>
           </div>
         </div>
 

@@ -1,3 +1,4 @@
+import * as path from "path";
 import * as vscode from "vscode";
 
 /**
@@ -89,8 +90,31 @@ export function resolveWorkspaceUri(candidate: string, message?: string): vscode
     return absoluteUri;
   }
 
-  // Handle relative paths - use the simpler approach
-  return resolveWorkspacePath(candidate);
+  const segments = candidate
+    .replace(/\\/g, "/")
+    .split("/")
+    .filter((segment) => segment.length > 0 && segment !== ".");
+
+  for (const folder of folders) {
+    // Check for duplicate folder names at the boundary
+    let adjustedSegments = segments;
+    
+    // Get the last segment of the workspace path
+    const workspaceBasename = path.basename(folder.uri.fsPath);
+    
+    // If the first segment matches the workspace folder name, remove it
+    if (segments.length > 0 && segments[0] === workspaceBasename) {
+      console.log(`[Workspace] Detected duplicate folder '${workspaceBasename}' - removing from path segments`);
+      adjustedSegments = segments.slice(1);
+    }
+    
+    const joined = vscode.Uri.joinPath(folder.uri, ...adjustedSegments);
+    if (isWithinWorkspaceRoot(folder.uri, joined)) {
+      return joined;
+    }
+  }
+
+  throw new Error(`Path "${candidate}" is outside the current workspace.`);
 }
 
 /**

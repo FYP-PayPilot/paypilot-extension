@@ -123,7 +123,6 @@ export const MultiFileEditSummary: React.FC<MultiFileEditSummaryProps> = ({
               </span>
               <span className="file-name">{change.fileName}</span>
             </div>
-            <div className="file-path">{change.filePath}</div>
             {(change.linesAdded !== undefined || change.linesDeleted !== undefined) && (
               <div className="line-changes">
                 {change.linesAdded !== undefined && change.linesAdded > 0 && (

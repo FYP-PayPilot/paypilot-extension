@@ -8,7 +8,7 @@ import { ModelInfo } from '../features/language-model/types';
  */
 
 // Configuration - Production backend
-const FASTAPI_BASE_URL = 'http://209.38.58.134:8000';
+const FASTAPI_BASE_URL = 'http://127.0.0.1:8000';
 const TIMEOUT_MS = 30000;
 
 /**
@@ -50,14 +50,15 @@ export async function getBackendModels(): Promise<ModelInfo[]> {
  * Stream chat response from FastAPI server - Agent Mode (no UI streaming)
  * Collects full response before processing
  */
-export async function streamChatAgent(
+export async function getChatAgent(
   modelId: string,
   userPrompt: string,
   fileContext: string,
   editorContext: string,
+  workspaceRoot?: string,
   abortSignal?: AbortSignal
 ): Promise<string> {
-  console.log(`[PayPilot] Using streamChatAgent via FastAPI with model: ${modelId}`);
+  console.log(`[PayPilot] Using getChatAgent via FastAPI with model: ${modelId}`);
   
   try {
     const controller = new AbortController();
@@ -77,7 +78,8 @@ export async function streamChatAgent(
         model_id: modelId,
         user_prompt: userPrompt,
         file_context: fileContext,
-        editor_context: editorContext
+        editor_context: editorContext,
+        workspace_root: workspaceRoot ?? null
       }),
       signal: controller.signal
     });
@@ -89,6 +91,7 @@ export async function streamChatAgent(
 
     const result = await response.json();
     console.log(`[PayPilot] ✅ Agent mode complete via FastAPI - received ${result.response.length} characters`);
+    console.log(`[PayPilot] ✅ Agent mode complete via FastAPI - tokens used ${result.response.tokens_used}`);
     
     return result.response;
     
@@ -112,6 +115,7 @@ export async function streamChatUI(
   editorContext: string,
   onToken: (token: string) => void,
   onComplete: (fullText: string) => void,
+  workspaceRoot?: string,
   abortSignal?: AbortSignal
 ): Promise<void> {
   console.log(`[PayPilot] 🚀 Using FastAPI streaming - streamChatUI with model: ${modelId}`);
@@ -134,7 +138,8 @@ export async function streamChatUI(
         model_id: modelId,
         user_prompt: userPrompt,
         file_context: fileContext,
-        editor_context: editorContext
+        editor_context: editorContext,
+        workspace_root: workspaceRoot ?? null
       }),
       signal: controller.signal
     });

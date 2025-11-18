@@ -11,6 +11,7 @@ export interface ChatQueryMessage {
   prompt: string;                      // User's input message
   mode: 'agent' | 'ask';              // Response mode: code generation vs Q&A
   model: string;                       // Selected model identifier
+  source?: 'vscode' | 'backend';       // Source of the model to route ask mode correctly
   contextFiles?: ContextFile[];
 }
 
@@ -48,15 +49,15 @@ export interface ContextClearMessage {
 }
 
 /** Sent from ChatInput MCP checkbox to toggle MCP functionality */
-export interface McpToggleMessage {
-  type: 'mcp:toggle';
-  enabled: boolean;
-}
+// export interface McpToggleMessage {
+//   type: 'mcp:toggle';
+//   enabled: boolean;
+// }
 
 /** Sent from ChatInput to request available MCP servers */
-export interface GetMcpServersMessage {
-  type: "mcp:get";
-}
+// export interface GetMcpServersMessage {
+//   type: "mcp:get";
+// }
 
 /** Union type used in VSCodeContext for type-safe message routing */
 export type WebviewToExtensionMessage =
@@ -68,9 +69,9 @@ export type WebviewToExtensionMessage =
   | ContextRequestMessage
   | ContextAddMessage
   | ContextRemoveMessage
-  | ContextClearMessage
-  | McpToggleMessage
-  | GetMcpServersMessage;
+  | ContextClearMessage;
+  // | McpToggleMessage
+  // | GetMcpServersMessage;
 
 /** Sent during ask mode streaming - received in useChat message handler */
 export interface ChatStreamMessage {
@@ -171,10 +172,10 @@ export interface ContextFilePickerMessage {
 }
 
 /** Response with available MCP servers */
-export interface McpServersResponse {
-  type: 'mcp:servers';
-  servers: McpServer[];
-}
+// export interface McpServersResponse {
+//   type: 'mcp:servers';
+//   servers: McpServer[];
+// }
 
 /** Union type used in VSCodeContext for type-safe message routing */
 export type ExtensionToWebviewMessage =
@@ -190,17 +191,17 @@ export type ExtensionToWebviewMessage =
   | ChatMultiFileEditSummaryMessage
   | ContextListMessage
   | ContextAddResponseMessage
-  | ContextFilePickerMessage
-  | McpServersResponse;
+  | ContextFilePickerMessage;
+  // | McpServersResponse;
 
 /** MCP Server configuration used in MCP functionality */
-export interface McpServer {
-  name: string;
-  type: string;
-  url?: string;
-  command?: string;
-  args?: string[];
-}
+// export interface McpServer {
+//   name: string;
+//   type: string;
+//   url?: string;
+//   command?: string;
+//   args?: string[];
+// }
 
 /** Core message type used throughout ChatMessage component and useChat hook */
 export interface ChatMessage {

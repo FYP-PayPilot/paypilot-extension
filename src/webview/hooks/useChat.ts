@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ChatMessage, ChatState, McpServer } from '../../features/chat/messages';
+import { ChatMessage, ChatState } from '../../features/chat/messages';
 import { ModelInfo } from '../../features/language-model/types';
 import { useVSCode } from '../context/VSCodeContext';
 
@@ -18,12 +18,8 @@ export const useChat = () => {
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>(''); // Start empty until models load
+  const [selectedModelSource, setSelectedModelSource] = useState<'vscode' | 'backend' | undefined>(undefined);
   const hasAutoSelectedModel = useRef(false); // Track if we've done initial auto-selection
-
-  // MCP state
-  const [mcpEnabled, setMcpEnabled] = useState<boolean>(false);
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [selectedServers, setSelectedServers] = useState<string[]>([]);
 
   // Chat history modal state
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
@@ -215,12 +211,14 @@ export const useChat = () => {
       prompt: prompt.trim(),
         mode,
         model: selectedModel,
+        source: selectedModelSource,
         contextFiles: state.contextFiles, // Include context files in message
     });
     },
     [
       state.isLoading,
       selectedModel,
+      selectedModelSource,
       postMessage,
       generateMessageId,
       state.contextFiles,
@@ -268,13 +266,16 @@ export const useChat = () => {
 
   // Handle model selection
   const handleModelChange = useCallback((modelId: string) => {
+    const model = availableModels.find((m) => m.id === modelId);
     setSelectedModel(modelId);
+    setSelectedModelSource(model?.source ?? undefined);
     postMessage({
       type: 'model:change',
-      model: modelId
+      model: modelId,
+      source: model?.source ?? undefined,
     });
     },
-    [postMessage]
+    [postMessage, availableModels]
   );
 
   // Handle context file requests
@@ -301,29 +302,6 @@ export const useChat = () => {
     setState((prev) => ({ ...prev, contextFiles: [] }));
     postMessage({ type: "context:clear" });
   }, [postMessage]);
-
-  // MCP functionality
-  const handleMcpToggle = useCallback((enabled: boolean) => {
-    setMcpEnabled(enabled);
-    postMessage({ type: 'mcp:toggle', enabled });
-  }, [postMessage]);
-
-  const handleMcpInfo = useCallback(() => {
-    postMessage({ type: 'mcp:get' });
-  }, [postMessage]);
-
-  const handleServerSelection = useCallback(
-    (servers: string[]) => {
-      setSelectedServers(servers);
-      // Automatically enable MCP when servers are selected, disable when none
-      const shouldEnable = servers.length > 0;
-      if (shouldEnable !== mcpEnabled) {
-        setMcpEnabled(shouldEnable);
-        postMessage({ type: 'mcp:toggle', enabled: shouldEnable });
-      }
-    },
-    [mcpEnabled, postMessage]
-  );
 
   // Handle new chat
   const handleNewChat = useCallback(() => {
@@ -437,11 +415,6 @@ export const useChat = () => {
       return 0;
     }
   }, []);
-
-  // Load MCP servers on mount
-  useEffect(() => {
-    postMessage({ type: 'mcp:get' });
-  }, [postMessage]);
 
   // Load chat history on mount
   useEffect(() => {
@@ -677,17 +650,19 @@ export const useChat = () => {
           
           // Auto-select preferred model only on first load
           if (message.models.length > 0 && !hasAutoSelectedModel.current) {
-            // Priority order: gpt-4.1 > gpt-4o > gpt-4 > claude-sonnet-4 > o3-mini
-            const preferredModel = 
+            const preferredModel =
               message.models.find(m => m.id === 'gpt-4.1') ||
               message.models.find(m => m.id === 'gpt-4o') ||
+              message.models.find(m => m.id === 'gpt-4o-mini') ||
               message.models.find(m => m.id === 'gpt-4') ||
               message.models.find(m => m.id === 'claude-sonnet-4') ||
               message.models.find(m => m.id === 'o3-mini') ||
+              message.models.find((m) => !m.source || m.source === 'vscode') ||
               message.models[0]; // Fallback to first available
               
             if (preferredModel) {
               setSelectedModel(preferredModel.id);
+              setSelectedModelSource(preferredModel.source ?? undefined);
             }
             hasAutoSelectedModel.current = true;
           }
@@ -720,11 +695,6 @@ export const useChat = () => {
 
         case "context:file-picker":
           // File picker opened - no UI state change needed
-          break;
-
-        case "mcp:servers":
-          // Handle MCP servers list response
-          setMcpServers(message.servers);
           break;
 
         default:
@@ -782,12 +752,6 @@ export const useChat = () => {
     handleAddContext,
     removeContextFile,
     clearAllContext,
-    mcpEnabled,
-    onMcpToggle: handleMcpToggle,
-    mcpServers,
-    selectedServers,
-    onServerSelection: handleServerSelection,
-    onMcpInfo: handleMcpInfo,
     handleNewChat,
     handleChatHistory,
     showHistoryModal,

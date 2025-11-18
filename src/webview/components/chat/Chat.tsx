@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -24,12 +24,6 @@ export const Chat: React.FC = () => {
     handleAddContext,
     removeContextFile,
     clearAllContext,
-    mcpEnabled,
-    onMcpToggle,
-    mcpServers,
-    selectedServers,
-    onServerSelection,
-    onMcpInfo,
     handleNewChat,
     handleChatHistory,
     showHistoryModal,
@@ -41,7 +35,29 @@ export const Chat: React.FC = () => {
     cleanupDuplicateHistory
   } = useChat();
 
+  const [ragEnabled, setRagEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const filteredModels = useMemo(() => {
+    if (ragEnabled) {
+      return availableModels.filter((model) => model.source === 'backend');
+    }
+
+    return availableModels.filter(
+      (model) => !model.source || model.source === 'vscode'
+    );
+  }, [availableModels, ragEnabled]);
+
+  useEffect(() => {
+    if (filteredModels.length === 0) {
+      return;
+    }
+
+    const hasSelection = filteredModels.some((model) => model.id === selectedModel);
+    if (!hasSelection) {
+      onModelChange(filteredModels[0].id);
+    }
+  }, [filteredModels, selectedModel, onModelChange]);
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -99,15 +115,11 @@ export const Chat: React.FC = () => {
           onModeChange={setMode}
           selectedModel={selectedModel || ''}
           onModelChange={onModelChange}
-          availableModels={availableModels}
+          availableModels={filteredModels}
           contextFiles={contextFiles}
           onAddContext={handleAddContext}
-          mcpEnabled={mcpEnabled}
-          onMcpToggle={onMcpToggle}
-          mcpServers={mcpServers}
-          selectedServers={selectedServers}
-          onServerSelection={onServerSelection}
-          onMcpInfo={onMcpInfo}
+          ragEnabled={ragEnabled}
+          onRagToggle={setRagEnabled}
         />
       </div>
 

@@ -19,7 +19,12 @@ import { McpMessageService } from "../mcp/mcpMessageService";
 import { ModelMessageService } from "../language-model/modelMessageService";
 import { ChatMessage, FileChange, ToolContext, SessionFileChange } from "./messages";
 import { FileOperation } from "../diff/types";
-import { resolveWorkspacePath, getRelativePath } from "../../utils/workspace";
+import {
+  resolveWorkspacePath,
+  getRelativePath,
+  resolveWorkspaceUri,
+  relativeUriPath,
+} from "../../utils/workspace";
 
 const WORKSPACE_CONTEXT_TOOL_NAME = "paypilot-workspaceContext";
 const CREATE_FILE_TOOL_NAME = "paypilot-createFile";
@@ -132,18 +137,20 @@ export class MessageHandlerService {
   }
 
   /**
-   * Process a `chat:ask` request from the webview.
+   * Process a `chat:query` request from the webview.
    * Routes to appropriate handler based on mode and agent selection.
    * @param msg The message payload from the webview.
    * @param panel The webview panel to communicate back to.
    * @returns Promise that resolves when processing completes.
    */
-  private async handleChatAsk(
+  private async handleChatQuery(
     msg: ChatMessage | undefined,
     panel: vscode.Webview
   ): Promise<void> {
     try {
       const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
+      const selectedModelSource: "vscode" | "backend" =
+        msg?.source === "vscode" ? "vscode" : "backend";
 
       // Get configuration to determine which agent mode to use
       const cfg = vscode.workspace.getConfiguration("paypilot");
@@ -170,46 +177,39 @@ export class MessageHandlerService {
           }
         } else {
           // Native agent mode - use VS Code model
-          if (msg?.model) {
-            selectedModel = await getLanguageModel(msg.model);
-          }
-
-          if (!selectedModel) {
-            const vscodeModels = await getVSCodeModels();
-            if (vscodeModels.length === 0) {
-              panel.postMessage({
-                type: "chat:error",
-                error:
-                  "No VS Code language models available. Please install a language model extension.",
-              });
-              return;
-            }
-            selectedModel = await getLanguageModel(vscodeModels[0].id);
-            modelId = vscodeModels[0].id;
-          }
-
-          if (!selectedModel) {
-            panel.postMessage({
-              type: "chat:error",
-              error:
-                "Failed to select a VS Code language model for agent mode.",
-            });
+          const resolved = await this.ensureVSCodeModel(
+            modelId,
+            panel,
+            "agent mode"
+          );
+          if (!resolved) {
             return;
           }
+          selectedModel = resolved.model;
+          modelId = resolved.id;
         }
-      } else {
-        // Ask mode - always use backend
-        if (!modelId) {
-          const backendModels = await getBackendModels();
-          if (backendModels.length === 0) {
-            panel.postMessage({
-              type: "chat:error",
-              error:
-                "No backend models available. Please ensure the FastAPI server is running.",
-            });
-            return;
-          }
+      } else if (selectedModelSource === "vscode") {
+        const resolved = await this.ensureVSCodeModel(
+          modelId,
+          panel,
+          "ask mode"
+        );
+        if (!resolved) {
+          return;
         }
+        selectedModel = resolved.model;
+        modelId = resolved.id;
+      } else if (!modelId) {
+        const backendModels = await getBackendModels();
+        if (backendModels.length === 0) {
+          panel.postMessage({
+            type: "chat:error",
+            error:
+              "No backend models available. Please ensure the FastAPI server is running.",
+          });
+          return;
+        }
+        modelId = backendModels[0].id;
       }
 
       const maxContextChars = Math.max(
@@ -249,7 +249,7 @@ export class MessageHandlerService {
         if (useBackendAgent) {
           await this.handleBackendAgentMode(
             modelId!,
-            userPrompt,
+            composed,
             panel,
             abortController
           );
@@ -262,7 +262,15 @@ export class MessageHandlerService {
           );
         }
       } else {
-        await this.handleAskMode(modelId!, userPrompt, panel, abortController);
+        await this.handleAskMode({
+          modelId: modelId!,
+          userPrompt,
+          composedPrompt: composed,
+          panel,
+          abortController,
+          source: selectedModelSource,
+          vscodeModel: selectedModel ?? undefined,
+        });
       }
     } catch (error) {
       this.currentAbortController = null;
@@ -273,6 +281,76 @@ export class MessageHandlerService {
           error instanceof Error ? error.message : "An unknown error occurred",
       });
     }
+  }
+
+  private async ensureVSCodeModel(
+    requestedId: string | undefined,
+    panel: vscode.Webview,
+    contextLabel: string
+  ): Promise<{ model: vscode.LanguageModelChat; id: string } | null> {
+    if (requestedId) {
+      const requestedModel = await getLanguageModel(requestedId);
+      if (requestedModel) {
+        return { model: requestedModel, id: requestedModel.id };
+      }
+    }
+
+    const vscodeModels = await getVSCodeModels();
+    if (vscodeModels.length === 0) {
+      panel.postMessage({
+        type: "chat:error",
+        error:
+          "No VS Code language models available. Please install a language model extension.",
+      });
+      return null;
+    }
+
+    const fallbackId = vscodeModels[0].id;
+    const fallbackModel = await getLanguageModel(fallbackId);
+    if (!fallbackModel) {
+      panel.postMessage({
+        type: "chat:error",
+        error: `Failed to select a VS Code language model for ${contextLabel}.`,
+      });
+      return null;
+    }
+
+    return { model: fallbackModel, id: fallbackId };
+  }
+
+  private async handleAskMode(options: {
+    modelId: string;
+    userPrompt: string;
+    composedPrompt: string;
+    panel: vscode.Webview;
+    abortController: AbortController;
+    source: "backend" | "vscode";
+    vscodeModel?: vscode.LanguageModelChat;
+  }): Promise<void> {
+    if (options.source === "vscode") {
+      if (!options.vscodeModel) {
+        options.panel.postMessage({
+          type: "chat:error",
+          error:
+            "Selected VS Code model is unavailable. Please choose another model.",
+        });
+        return;
+      }
+      await this.handleAskModeVSCode(
+        options.vscodeModel,
+        options.composedPrompt,
+        options.panel,
+        options.abortController
+      );
+      return;
+    }
+
+    await this.handleAskModeBackend(
+      options.modelId,
+      options.composedPrompt,
+      options.panel,
+      options.abortController
+    );
   }
 
   /**
@@ -565,15 +643,12 @@ export class MessageHandlerService {
    */
   private async handleAskModeBackend(
     modelId: string,
-    userPrompt: string,
+    prompt: string,
     panel: vscode.Webview,
     abortController: AbortController
   ): Promise<void> {
     console.log("[PayPilot] Starting Ask Mode via FastAPI backend");
 
-    const conversation: vscode.LanguageModelChatMessage[] = [
-      vscode.LanguageModelChatMessage.User(userPrompt),
-    ];
     const cancellationTokenSource = new vscode.CancellationTokenSource();
     const { signal } = abortController;
     const listener = () => {
@@ -582,7 +657,6 @@ export class MessageHandlerService {
     signal.addEventListener("abort", listener);
 
     try {
-      // Extract context from the composed prompt
       const cfg = vscode.workspace.getConfiguration("paypilot");
       const maxContextChars = Math.max(
         0,
@@ -591,24 +665,20 @@ export class MessageHandlerService {
       const editorContext =
         this.contextService.getActiveEditorContext(maxContextChars);
       const fileContext = this.contextService.buildContextContent();
-
       const workspaceContextText = await this.fetchWorkspaceContextSnapshot(panel);
-      const backendPrompt = workspaceContextText
-        ? `${composed}\n\n--- Workspace Context ---\n${workspaceContextText}`
-        : composed;
+      const mergedFileContext = workspaceContextText
+        ? `${fileContext}\n\n--- Workspace Snapshot ---\n${workspaceContextText}`
+        : fileContext;
 
-      // Stream from FastAPI backend
       await streamChatUI(
         modelId,
-        userPrompt,
-        fileContext,
+        prompt,
+        mergedFileContext,
         editorContext,
         (token: string) => {
-          // Stream each token to the webview
           panel.postMessage({ type: "chat:stream", token });
         },
         (fullText: string) => {
-          // Send final complete message
           panel.postMessage({ type: "chat:done", text: fullText });
         },
         signal
@@ -766,12 +836,6 @@ export class MessageHandlerService {
     }
   }
 
-  private getAskModeTools(): vscode.LanguageModelChatTool[] {
-    return this.chatTools.filter(
-      (tool) => tool.name === WORKSPACE_CONTEXT_TOOL_NAME
-    );
-  }
-
   private recordAgentChange(entry: string | undefined): void {
     if (!entry) {
       return;
@@ -809,6 +873,34 @@ export class MessageHandlerService {
       .join("")
       .trim();
     return this.parsePlanLines(raw);
+  }
+
+  private injectWorkspaceRefreshIfNeeded(
+    conversation: vscode.LanguageModelChatMessage[],
+    call: vscode.LanguageModelToolCallPart,
+    hasMoreCalls: boolean
+  ): void {
+    if (!hasMoreCalls) {
+      return;
+    }
+
+    const mutatingTools = new Set([
+      CREATE_FILE_TOOL_NAME,
+      UPDATE_FILE_TOOL_NAME,
+      DELETE_FILE_TOOL_NAME,
+      CREATE_DIRECTORY_TOOL_NAME,
+      DELETE_DIRECTORY_TOOL_NAME,
+    ]);
+
+    if (!mutatingTools.has(call.name)) {
+      return;
+    }
+
+    conversation.push(
+      vscode.LanguageModelChatMessage.User(
+        "Workspace files have changed. Refresh the workspace context before continuing."
+      )
+    );
   }
 
   private parsePlanLines(raw: string): string[] {
@@ -1362,37 +1454,6 @@ export class MessageHandlerService {
       this.currentAbortController = null;
       panel.postMessage({ type: "chat:stopped" });
     }
-  }
-
-  /**
-   * Start a new chat session, optionally with a title.
-   * @param message The message payload from the webview, possibly containing a title.
-   * @param panel The webview panel to communicate back to.
-   * @returns Promise that resolves when the operation completes.
-   */
-  private async handleNewChat(
-    message: ChatMessage | undefined,
-    panel: vscode.Webview
-  ): Promise<void> {
-    const session = this.chatHistoryService.createSession(message?.title);
-    panel.postMessage({
-      type: "chat:new-response",
-      success: true,
-      session,
-    });
-  }
-
-  /**
-   * Return currently known chat sessions to the webview.
-   * @param panel The webview panel to communicate back to.
-   * @returns Promise that resolves when the operation completes.
-   */
-  private async handleChatHistory(panel: vscode.Webview): Promise<void> {
-    const sessions = this.chatHistoryService.listSessions();
-    panel.postMessage({
-      type: "chat:history-response",
-      sessions,
-    });
   }
 
   /**

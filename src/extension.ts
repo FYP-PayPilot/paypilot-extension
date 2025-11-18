@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { ChatViewProvider } from "./panels/ChatViewProvider";
 import { MessageHandlerService } from "./features/chat/messageHandlerService";
-import { registerPaypilotTools } from "./tools";
+import { ToolsService } from "./features/tools";
 import { ToolExecutionServer } from "./features/tool-execution/toolExecutionServer";
 
 let toolServer: ToolExecutionServer | undefined;
@@ -23,7 +23,6 @@ export async function activate(context: vscode.ExtensionContext) {
     context.workspaceState,
     chatTools
   );
-
   // Start tool execution server
   toolServer = new ToolExecutionServer(messageHandlerService);
   try {

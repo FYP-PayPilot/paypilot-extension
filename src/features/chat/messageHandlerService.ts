@@ -21,6 +21,7 @@ import { ChatHistoryService } from "./chatHistoryService";
 import { ChatMessage, FileChange } from "../../types/chat";
 import { FileOperation } from "../../types/diff";
 import { resolveWorkspaceUri, relativeUriPath } from "../../utils/workspace";
+import { AgentWebSocketClient } from "../client/vscode_websocket_client";
 
 const WORKSPACE_CONTEXT_TOOL_NAME = "paypilot-workspaceContext";
 const CREATE_FILE_TOOL_NAME = "paypilot-createFile";
@@ -64,6 +65,7 @@ export class MessageHandlerService {
     linesAdded?: number;
     linesDeleted?: number;
   }> = [];
+  private wsClient?: AgentWebSocketClient;
 
   constructor(
     workspaceState: vscode.Memento,
@@ -78,6 +80,10 @@ export class MessageHandlerService {
     this.mcpMessageService = new McpMessageService(this.mcpService);
     this.modelMessageService = new ModelMessageService();
     this.chatHistoryService = new ChatHistoryService();
+  }
+
+  setWebSocketClient(client: AgentWebSocketClient): void {
+    this.wsClient = client;
   }
 
   /**
@@ -316,6 +322,16 @@ export class MessageHandlerService {
   ): Promise<void> {
     console.log("[PayPilot] Starting Backend Agent Mode via FastAPI");
 
+    // Get WebSocket client
+    if (!this.wsClient || !this.wsClient.isConnected) {
+      panel.postMessage({
+        type: "chat:error",
+        error: "Not connected to agent server",
+      });
+      return;
+    }
+    this.wsClient.setWebview(panel);
+
     // Send initial working status
     panel.postMessage({
       type: "chat:working",
@@ -333,31 +349,31 @@ export class MessageHandlerService {
         this.contextService.getActiveEditorContext(maxContextChars);
       const fileContext = this.contextService.buildContextContent();
 
-      // Call backend agent endpoint
-      // Backend will:
-      // 1. Run agent loop with LLM
-      // 2. Call ToolExecutionServer via HTTP for tool execution
-      // 3. ToolExecutionServer automatically sends UI notifications
-      // 4. Backend receives tool results and continues loop
-      // 5. Backend returns final response
-      const response = await getChatAgent(
-        modelId,
-        composed,
-        fileContext,
-        editorContext,
-        abortController.signal
+      // Send request
+      const response = await this.wsClient.sendAgentRequestWithCompletion(
+        {
+          model_id: modelId,
+          user_prompt: composed,
+          editor_context: editorContext,
+          file_context: fileContext,
+          max_tokens: 4000,
+          temperature: 0.7,
+        },
+        abortController
       );
 
+      panel.postMessage({
+        type: "chat:done",
+        text: response.response, // Note: response.response
+      });
+
       // Backend agent is complete
-      // All UI notifications were sent by ToolExecutionServer during execution
-      // Just display the final response
       panel.postMessage({
         type: "chat:done",
         text: response,
       });
 
       // Send multi-file edit summary if there were changes
-      // (tracked automatically by integrated ToolExecutionServer)
       this.sendMultiFileEditSummary(panel);
     } catch (agentError) {
       if (

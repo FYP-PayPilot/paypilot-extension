@@ -11,11 +11,11 @@ import {
   getLanguageModel,
 } from "../language-model/languageModelService";
 import { StatusBarService } from "../diff/statusBarService";
-import { McpService } from "../mcp/mcpService";
+// import { McpService } from "../mcp/mcpService";
 import { ContextService } from "../context/contextService";
 import { PromptService } from "./promptService";
 import { ContextMessageService } from "../context/contextMessageService";
-import { McpMessageService } from "../mcp/mcpMessageService";
+// import { McpMessageService } from "../mcp/mcpMessageService";
 import { ModelMessageService } from "../language-model/modelMessageService";
 import { ChatMessage, FileChange, ToolContext, SessionFileChange } from "./messages";
 import { FileOperation } from "../diff/types";
@@ -47,11 +47,11 @@ export class MessageHandlerService {
   private currentAbortController: AbortController | null = null;
   private readonly diffService: DiffService;
   private readonly statusBarService: StatusBarService;
-  private readonly mcpService: McpService;
+  // private readonly mcpService: McpService;
   private readonly contextService: ContextService;
   private readonly promptService: PromptService;
   private readonly contextMessageService: ContextMessageService;
-  private readonly mcpMessageService: McpMessageService;
+  // private readonly mcpMessageService: McpMessageService;
   private readonly modelMessageService: ModelMessageService;
   private agentChangeLog: string[] = [];
   private currentSessionFileChanges: SessionFileChange[] = [];
@@ -62,11 +62,11 @@ export class MessageHandlerService {
   ) {
     this.statusBarService = new StatusBarService();
     this.diffService = new DiffService(this.statusBarService, workspaceState);
-    this.mcpService = new McpService();
+    // this.mcpService = new McpService();
     this.contextService = new ContextService();
     this.promptService = new PromptService();
     this.contextMessageService = new ContextMessageService(this.contextService);
-    this.mcpMessageService = new McpMessageService(this.mcpService);
+    // this.mcpMessageService = new McpMessageService(this.mcpService);
     this.modelMessageService = new ModelMessageService();
   }
 
@@ -124,12 +124,12 @@ export class MessageHandlerService {
       case "context:clear":
         this.contextMessageService.clearAll(panel);
         break;
-      case "mcp:toggle":
-        this.mcpMessageService.toggle(Boolean(message?.enabled));
-        break;
-      case "mcp:get":
-        await this.mcpMessageService.sendServers(panel);
-        break;
+      // case "mcp:toggle":
+      //   this.mcpMessageService.toggle(Boolean(message?.enabled));
+      //   break;
+      // case "mcp:get":
+      //   await this.mcpMessageService.sendServers(panel);
+      //   break;
       default:
         console.warn(`[PayPilot] Unknown message type: ${messageType}`);
         break;
@@ -1510,9 +1510,9 @@ export class MessageHandlerService {
   /**
    * Expose the MCP service to the extension entrypoint for configuration helpers.
    */
-  getMcpService(): McpService {
-    return this.mcpService;
-  }
+  // getMcpService(): McpService {
+  //   return this.mcpService;
+  // }
 
   /**
    * Dispose underlying services and cancel in-flight requests.
@@ -1521,8 +1521,8 @@ export class MessageHandlerService {
     this.statusBarService.dispose();
     this.diffService.dispose();
     this.contextMessageService.clearAll();
-    this.mcpService.reset();
-
+    // this.mcpService.reset();
+    
     if (this.currentAbortController) {
       this.currentAbortController.abort();
       this.currentAbortController = null;

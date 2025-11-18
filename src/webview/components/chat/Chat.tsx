@@ -1,10 +1,21 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useChat } from '../../hooks/useChat';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ContextList } from './ContextList';
 import { ChatControls } from './ChatControls';
 import { ChatHistoryModal } from './ChatHistoryModal';
+
+const ALLOWED_VSCODE_MODEL_KEYWORDS = [
+  '4o',
+  '4omini',
+  'grokcodefast',
+  'gpt4mini',
+  'gpt41'
+];
+
+const normalizeModelKey = (value: string): string =>
+  value.toLowerCase().replace(/[^a-z0-9.]/g, '');
 
 /**
  * Main chat component that orchestrates the entire chat interface
@@ -24,12 +35,6 @@ export const Chat: React.FC = () => {
     handleAddContext,
     removeContextFile,
     clearAllContext,
-    mcpEnabled,
-    onMcpToggle,
-    mcpServers,
-    selectedServers,
-    onServerSelection,
-    onMcpInfo,
     handleNewChat,
     handleChatHistory,
     showHistoryModal,
@@ -41,7 +46,41 @@ export const Chat: React.FC = () => {
     cleanupDuplicateHistory
   } = useChat();
 
+  const [ragEnabled, setRagEnabled] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const filteredModels = useMemo(() => {
+    if (ragEnabled) {
+      return availableModels.filter((model) => model.source === 'backend');
+    }
+
+    return availableModels.filter((model) => {
+      if (model.source && model.source !== 'vscode') {
+        return false;
+      }
+
+      const candidates = [model.name, model.family ?? '', model.id]
+        .filter(Boolean)
+        .map((value) => normalizeModelKey(String(value)));
+
+      return candidates.some((candidate) =>
+        ALLOWED_VSCODE_MODEL_KEYWORDS.some((keyword) =>
+          candidate.includes(keyword)
+        )
+      );
+    });
+  }, [availableModels, ragEnabled]);
+
+  useEffect(() => {
+    if (filteredModels.length === 0) {
+      return;
+    }
+
+    const hasSelection = filteredModels.some((model) => model.id === selectedModel);
+    if (!hasSelection) {
+      onModelChange(filteredModels[0].id);
+    }
+  }, [filteredModels, selectedModel, onModelChange]);
 
   /**
    * Auto-scroll to bottom when new messages arrive
@@ -99,15 +138,11 @@ export const Chat: React.FC = () => {
           onModeChange={setMode}
           selectedModel={selectedModel || ''}
           onModelChange={onModelChange}
-          availableModels={availableModels}
+          availableModels={filteredModels}
           contextFiles={contextFiles}
           onAddContext={handleAddContext}
-          mcpEnabled={mcpEnabled}
-          onMcpToggle={onMcpToggle}
-          mcpServers={mcpServers}
-          selectedServers={selectedServers}
-          onServerSelection={onServerSelection}
-          onMcpInfo={onMcpInfo}
+          ragEnabled={ragEnabled}
+          onRagToggle={setRagEnabled}
         />
       </div>
 

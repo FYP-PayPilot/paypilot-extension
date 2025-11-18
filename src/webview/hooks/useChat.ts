@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { ChatMessage, ChatState, McpServer } from '../../features/chat/messages';
+import { ChatMessage, ChatState } from '../../features/chat/messages';
 import { ModelInfo } from '../../features/language-model/types';
 import { useVSCode } from '../context/VSCodeContext';
 
@@ -20,11 +20,6 @@ export const useChat = () => {
   const [selectedModel, setSelectedModel] = useState<string>(''); // Start empty until models load
   const [selectedModelSource, setSelectedModelSource] = useState<'vscode' | 'backend' | undefined>(undefined);
   const hasAutoSelectedModel = useRef(false); // Track if we've done initial auto-selection
-
-  // MCP state
-  const [mcpEnabled, setMcpEnabled] = useState<boolean>(false);
-  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
-  const [selectedServers, setSelectedServers] = useState<string[]>([]);
 
   // Chat history modal state
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
@@ -308,29 +303,6 @@ export const useChat = () => {
     postMessage({ type: "context:clear" });
   }, [postMessage]);
 
-  // MCP functionality
-  const handleMcpToggle = useCallback((enabled: boolean) => {
-    setMcpEnabled(enabled);
-    postMessage({ type: 'mcp:toggle', enabled });
-  }, [postMessage]);
-
-  const handleMcpInfo = useCallback(() => {
-    postMessage({ type: 'mcp:get' });
-  }, [postMessage]);
-
-  const handleServerSelection = useCallback(
-    (servers: string[]) => {
-      setSelectedServers(servers);
-      // Automatically enable MCP when servers are selected, disable when none
-      const shouldEnable = servers.length > 0;
-      if (shouldEnable !== mcpEnabled) {
-        setMcpEnabled(shouldEnable);
-        postMessage({ type: 'mcp:toggle', enabled: shouldEnable });
-      }
-    },
-    [mcpEnabled, postMessage]
-  );
-
   // Handle new chat
   const handleNewChat = useCallback(() => {
     // Save current chat to history before starting new one
@@ -443,11 +415,6 @@ export const useChat = () => {
       return 0;
     }
   }, []);
-
-  // Load MCP servers on mount
-  useEffect(() => {
-    postMessage({ type: 'mcp:get' });
-  }, [postMessage]);
 
   // Load chat history on mount
   useEffect(() => {
@@ -729,11 +696,6 @@ export const useChat = () => {
           // File picker opened - no UI state change needed
           break;
 
-        case "mcp:servers":
-          // Handle MCP servers list response
-          setMcpServers(message.servers);
-          break;
-
         default:
           break;
       }
@@ -789,12 +751,6 @@ export const useChat = () => {
     handleAddContext,
     removeContextFile,
     clearAllContext,
-    mcpEnabled,
-    onMcpToggle: handleMcpToggle,
-    mcpServers,
-    selectedServers,
-    onServerSelection: handleServerSelection,
-    onMcpInfo: handleMcpInfo,
     handleNewChat,
     handleChatHistory,
     showHistoryModal,

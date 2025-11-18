@@ -4,7 +4,6 @@ import { MessageHandlerService } from "./features/chat/messageHandlerService";
 import { ToolsService } from "./features/tools";
 import { AgentWebSocketClient } from "./features/client/vscode_websocket_client";
 
-let wsClient: AgentWebSocketClient | undefined;
 let messageHandlerService: MessageHandlerService | undefined; // global message handler service
 
 /**
@@ -24,11 +23,13 @@ export async function activate(context: vscode.ExtensionContext) {
     chatTools
   );
 
-  const FASTAPI_BASE_URL = 'ws://localhost:8000/ws/agent'; // Update this
+  const FASTAPI_BASE_URL = "ws://localhost:8000/ws/agent"; // Update this
 
-  const wsClient = new AgentWebSocketClient(messageHandlerService, FASTAPI_BASE_URL);
+  const wsClient = new AgentWebSocketClient(
+    messageHandlerService,
+    FASTAPI_BASE_URL
+  );
   await wsClient.connect();
-  context.globalState.update('wsClient', wsClient);
   messageHandlerService.setWebSocketClient(wsClient);
 
   const chatProvider = new ChatViewProvider(context);
@@ -132,6 +133,10 @@ export async function activate(context: vscode.ExtensionContext) {
       await messageHandlerService.handleMessage(msg, panel);
     }
   });
+
+  context.subscriptions.push({
+    dispose: () => wsClient.disconnect(),
+  });
 }
 
 /**
@@ -139,6 +144,5 @@ export async function activate(context: vscode.ExtensionContext) {
  */
 export function deactivate(): void {
   messageHandlerService?.dispose();
-  wsClient?.disconnect();
   messageHandlerService = undefined;
 }

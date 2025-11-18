@@ -8,7 +8,7 @@ import { ModelInfo } from '../features/language-model/types';
  */
 
 // Configuration - Production backend
-const FASTAPI_BASE_URL = 'http://209.38.58.134:8000';
+const FASTAPI_BASE_URL = 'http://127.0.0.1:8000';
 const TIMEOUT_MS = 30000;
 
 /**
@@ -34,14 +34,7 @@ export async function getBackendModels(): Promise<ModelInfo[]> {
     console.log(`[PayPilot] Models received from server: (${models.length})`, 
       models.map(m => ({ id: m.id, name: m.name, vendor: m.vendor })));
 
-    const allowedBackendIds = new Set([
-      "deepseek/deepseek-chat-v3.1:free",
-      "nvidia/nemotron-nano-9b-v2:free",
-    ]);
-
-    return models
-      .filter((model) => allowedBackendIds.has(model.id))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return models.sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     console.warn('[PayPilot] Failed to load language models from FastAPI server:', error);
     
@@ -62,6 +55,7 @@ export async function getChatAgent(
   userPrompt: string,
   fileContext: string,
   editorContext: string,
+  workspaceRoot?: string,
   abortSignal?: AbortSignal
 ): Promise<string> {
   console.log(`[PayPilot] Using getChatAgent via FastAPI with model: ${modelId}`);
@@ -84,7 +78,8 @@ export async function getChatAgent(
         model_id: modelId,
         user_prompt: userPrompt,
         file_context: fileContext,
-        editor_context: editorContext
+        editor_context: editorContext,
+        workspace_root: workspaceRoot ?? null
       }),
       signal: controller.signal
     });
@@ -120,6 +115,7 @@ export async function streamChatUI(
   editorContext: string,
   onToken: (token: string) => void,
   onComplete: (fullText: string) => void,
+  workspaceRoot?: string,
   abortSignal?: AbortSignal
 ): Promise<void> {
   console.log(`[PayPilot] 🚀 Using FastAPI streaming - streamChatUI with model: ${modelId}`);
@@ -142,7 +138,8 @@ export async function streamChatUI(
         model_id: modelId,
         user_prompt: userPrompt,
         file_context: fileContext,
-        editor_context: editorContext
+        editor_context: editorContext,
+        workspace_root: workspaceRoot ?? null
       }),
       signal: controller.signal
     });

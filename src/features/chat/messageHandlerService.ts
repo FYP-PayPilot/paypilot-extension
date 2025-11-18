@@ -24,6 +24,7 @@ import {
   getRelativePath,
   resolveWorkspaceUri,
   relativeUriPath,
+  getWorkspaceRoot,
 } from "../../utils/workspace";
 
 const WORKSPACE_CONTEXT_TOOL_NAME = "paypilot-workspaceContext";
@@ -155,13 +156,17 @@ export class MessageHandlerService {
       // Get configuration to determine which agent mode to use
       const cfg = vscode.workspace.getConfiguration("paypilot");
       const useBackendAgent = cfg.get<boolean>("useBackendAgent", false);
+      const agentUsesBackend =
+        mode === "agent" &&
+        (selectedModelSource === "backend" ||
+          (useBackendAgent && selectedModelSource !== "vscode"));
 
       // Get model selection
       let selectedModel: vscode.LanguageModelChat | null = null;
       let modelId: string | undefined = msg?.model;
 
       if (mode === "agent") {
-        if (useBackendAgent) {
+        if (agentUsesBackend) {
           // Backend agent mode - use backend model
           if (!modelId) {
             const backendModels = await getBackendModels(); // TODO: update this endpoint
@@ -246,7 +251,7 @@ export class MessageHandlerService {
       const userPrompt = msg ? msg.prompt ?? "" : "";
       // Route to appropriate handler
       if (mode === "agent") {
-        if (useBackendAgent) {
+        if (agentUsesBackend) {
           await this.handleBackendAgentMode(
             modelId!,
             composed,
@@ -396,11 +401,13 @@ export class MessageHandlerService {
       // 3. ToolExecutionServer automatically sends UI notifications
       // 4. Backend receives tool results and continues loop
       // 5. Backend returns final response
+      const workspaceRootPath = this.getWorkspaceRootPath();
       const response = await getChatAgent(
         modelId,
         composed,
         fileContext,
         editorContext,
+        workspaceRootPath,
         abortController.signal
       );
 
@@ -670,6 +677,7 @@ export class MessageHandlerService {
         ? `${fileContext}\n\n--- Workspace Snapshot ---\n${workspaceContextText}`
         : fileContext;
 
+      const workspaceRootPath = this.getWorkspaceRootPath();
       await streamChatUI(
         modelId,
         prompt,
@@ -681,6 +689,7 @@ export class MessageHandlerService {
         (fullText: string) => {
           panel.postMessage({ type: "chat:done", text: fullText });
         },
+        workspaceRootPath,
         signal
       );
     } catch (chatError) {
@@ -1639,5 +1648,14 @@ export class MessageHandlerService {
     } as vscode.LanguageModelToolCallPart;
 
     return await this.prepareToolContext(mockCall);
+  }
+
+  private getWorkspaceRootPath(): string | undefined {
+    try {
+      return getWorkspaceRoot().fsPath;
+    } catch (error) {
+      console.warn("[PayPilot] Workspace root not available:", error);
+      return undefined;
+    }
   }
 }

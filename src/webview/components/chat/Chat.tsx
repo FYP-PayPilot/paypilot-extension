@@ -6,17 +6,6 @@ import { ContextList } from './ContextList';
 import { ChatControls } from './ChatControls';
 import { ChatHistoryModal } from './ChatHistoryModal';
 
-const ALLOWED_VSCODE_MODEL_KEYWORDS = [
-  '4o',
-  '4omini',
-  'grokcodefast',
-  'gpt4mini',
-  'gpt41'
-];
-
-const normalizeModelKey = (value: string): string =>
-  value.toLowerCase().replace(/[^a-z0-9.]/g, '');
-
 /**
  * Main chat component that orchestrates the entire chat interface
  */
@@ -54,21 +43,9 @@ export const Chat: React.FC = () => {
       return availableModels.filter((model) => model.source === 'backend');
     }
 
-    return availableModels.filter((model) => {
-      if (model.source && model.source !== 'vscode') {
-        return false;
-      }
-
-      const candidates = [model.name, model.family ?? '', model.id]
-        .filter(Boolean)
-        .map((value) => normalizeModelKey(String(value)));
-
-      return candidates.some((candidate) =>
-        ALLOWED_VSCODE_MODEL_KEYWORDS.some((keyword) =>
-          candidate.includes(keyword)
-        )
-      );
-    });
+    return availableModels.filter(
+      (model) => !model.source || model.source === 'vscode'
+    );
   }, [availableModels, ragEnabled]);
 
   useEffect(() => {

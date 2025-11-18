@@ -17,6 +17,10 @@ const SUPPORTED_VSCODE_FAMILIES = new Set([
   "o1",
   "o1-mini",
   "claude-3-5-sonnet",
+  "grok-code",
+  "gpt-3.5-turbo",
+  "gpt-4.1",
+  "gpt-5-mini",
 ]);
 
 export async function getVSCodeModels(): Promise<ModelInfo[]> {

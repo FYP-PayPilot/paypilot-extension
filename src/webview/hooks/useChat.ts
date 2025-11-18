@@ -650,13 +650,14 @@ export const useChat = () => {
           
           // Auto-select preferred model only on first load
           if (message.models.length > 0 && !hasAutoSelectedModel.current) {
-            // Priority order: gpt-4.1 > gpt-4o > gpt-4 > claude-sonnet-4 > o3-mini
-            const preferredModel = 
+            const preferredModel =
               message.models.find(m => m.id === 'gpt-4.1') ||
               message.models.find(m => m.id === 'gpt-4o') ||
+              message.models.find(m => m.id === 'gpt-4o-mini') ||
               message.models.find(m => m.id === 'gpt-4') ||
               message.models.find(m => m.id === 'claude-sonnet-4') ||
               message.models.find(m => m.id === 'o3-mini') ||
+              message.models.find((m) => !m.source || m.source === 'vscode') ||
               message.models[0]; // Fallback to first available
               
             if (preferredModel) {

@@ -1,10 +1,13 @@
 /**
- * VSCode Extension WebSocket Client
- * Connects to the FastAPI WebSocket endpoint for agent communication
+ * WebSocket-based Agent Client for VSCode Extension
+ * Integrates with existing MessageHandlerService infrastructure
  */
 
 import * as vscode from 'vscode';
 import WebSocket from 'ws';
+import * as path from 'path';
+import { resolveWorkspaceUri } from '../../utils/workspace';
+import { MessageHandlerService } from '../chat/messageHandlerService';
 
 interface ToolRequest {
     type: 'tool_request';
@@ -37,6 +40,9 @@ interface ErrorMessage {
 
 type ServerMessage = ToolRequest | AgentResponse | StatusUpdate | ErrorMessage | { type: 'pong' };
 
+/**
+ * WebSocket-based agent client that replaces the HTTP server on port 3001
+ */
 export class AgentWebSocketClient {
     private ws: WebSocket | null = null;
     private serverUrl: string;
@@ -45,14 +51,23 @@ export class AgentWebSocketClient {
     private reconnectDelay = 1000;
     private pingInterval: NodeJS.Timeout | null = null;
     
-    // Callbacks for UI updates
-    public onStatusUpdate?: (message: string) => void;
-    public onResponse?: (response: AgentResponse) => void;
-    public onError?: (error: string) => void;
-    public onConnectionChange?: (connected: boolean) => void;
-
-    constructor(serverUrl: string = 'ws://localhost:8000/ws/agent') {
+    // Integration with existing infrastructure
+    private messageHandler: MessageHandlerService;
+    private webviewPanel?: vscode.Webview;
+    
+    constructor(
+        messageHandler: MessageHandlerService,
+        serverUrl: string = 'ws://localhost:8000/ws/agent'
+    ) {
+        this.messageHandler = messageHandler;
         this.serverUrl = serverUrl;
+    }
+
+    /**
+     * Set the webview panel for notifications
+     */
+    public setWebview(webview: vscode.Webview): void {
+        this.webviewPanel = webview;
     }
 
     /**
@@ -64,10 +79,19 @@ export class AgentWebSocketClient {
                 this.ws = new WebSocket(this.serverUrl);
 
                 this.ws.onopen = () => {
-                    console.log('WebSocket connected to server');
+                    console.log('[WebSocket] Connected to agent server');
                     this.reconnectAttempts = 0;
                     this.startPingInterval();
-                    this.onConnectionChange?.(true);
+                    
+                    // Notify UI of connection
+                    if (this.webviewPanel) {
+                        this.webviewPanel.postMessage({
+                            type: 'chat:status',
+                            status: 'connected',
+                            message: 'Connected to AI Agent server'
+                        });
+                    }
+                    
                     resolve();
                 };
 
@@ -76,15 +100,31 @@ export class AgentWebSocketClient {
                 };
 
                 this.ws.onclose = (event) => {
-                    console.log('WebSocket closed:', event.code, event.reason);
+                    console.log('[WebSocket] Disconnected:', event.code, event.reason);
                     this.stopPingInterval();
-                    this.onConnectionChange?.(false);
+                    
+                    // Notify UI of disconnection
+                    if (this.webviewPanel) {
+                        this.webviewPanel.postMessage({
+                            type: 'chat:status',
+                            status: 'disconnected',
+                            message: 'Disconnected from AI Agent server'
+                        });
+                    }
+                    
                     this.attemptReconnect();
                 };
 
                 this.ws.onerror = (error) => {
-                    console.error('WebSocket error:', error);
-                    this.onError?.('WebSocket connection error');
+                    console.error('[WebSocket] Error:', error);
+                    
+                    if (this.webviewPanel) {
+                        this.webviewPanel.postMessage({
+                            type: 'chat:error',
+                            error: 'WebSocket connection error'
+                        });
+                    }
+                    
                     reject(error);
                 };
 
@@ -121,6 +161,15 @@ export class AgentWebSocketClient {
             throw new Error('WebSocket not connected');
         }
 
+        // Send status to UI
+        if (this.webviewPanel) {
+            this.webviewPanel.postMessage({
+                type: 'chat:status',
+                status: 'processing',
+                message: 'Sending request to agent...'
+            });
+        }
+
         this.ws.send(JSON.stringify({
             type: 'agent_request',
             ...request
@@ -140,257 +189,445 @@ export class AgentWebSocketClient {
                     break;
 
                 case 'agent_response':
-                    this.onResponse?.(message);
+                    await this.handleAgentResponse(message);
                     break;
 
                 case 'status':
-                    this.onStatusUpdate?.(message.message);
+                    this.handleStatusUpdate(message);
                     break;
 
                 case 'error':
-                    this.onError?.(message.message);
+                    this.handleError(message);
                     break;
 
                 case 'pong':
-                    // Keep-alive response, ignore
+                    // Keep-alive response
                     break;
 
                 default:
-                    console.warn('Unknown message type:', message);
+                    console.warn('[WebSocket] Unknown message type:', message);
             }
         } catch (error) {
-            console.error('Failed to parse message:', error);
+            console.error('[WebSocket] Failed to parse message:', error);
         }
     }
 
     /**
-     * Execute a tool locally and send result back
+     * Execute a tool using the existing MessageHandlerService infrastructure
+     * This ensures consistent notifications and side effects
      */
     private async handleToolRequest(request: ToolRequest): Promise<void> {
-        console.log(`Executing tool: ${request.tool_name}`, request.tool_args);
+        console.log(`[WebSocket] Tool request: ${request.tool_name}`, request.tool_args);
         
         try {
-            const result = await this.executeLocalTool(
+            // Execute tool using integrated approach
+            const result = await this.executeToolIntegrated(
                 request.tool_name,
-                request.tool_args,
-                request.workspace_root
+                request.tool_args
             );
 
             // Send result back to server
             this.ws?.send(JSON.stringify({
                 type: 'tool_result',
                 request_id: request.request_id,
-                result: result
+                result: JSON.stringify(result)
             }));
 
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             
+            console.error(`[WebSocket] Tool execution error:`, error);
+            
+            // Send error result back to server
             this.ws?.send(JSON.stringify({
                 type: 'tool_result',
                 request_id: request.request_id,
-                result: JSON.stringify({ error: errorMessage })
+                result: JSON.stringify({ 
+                    success: false,
+                    error: errorMessage 
+                })
             }));
         }
     }
 
     /**
-     * Execute VSCode-specific tools
-     * This is where you implement your actual tool logic
+     * Execute tool using MessageHandlerService's infrastructure.
+     * This ensures consistent notifications and state tracking.
      */
-    private async executeLocalTool(
+    private async executeToolIntegrated(
         toolName: string,
-        args: Record<string, any>,
-        workspaceRoot: string
-    ): Promise<string> {
+        toolArgs: any
+    ): Promise<any> {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceRoot) {
+            return {
+                success: false,
+                error: "No workspace folder open",
+            };
+        }
+
+        try {
+            // Step 1: Prepare tool context using MessageHandlerService
+            const context = await this.messageHandler.prepareToolContextExternal(
+                toolName,
+                toolArgs
+            );
+
+            // Step 2: Notify tool activity using MessageHandlerService
+            // ✅ This updates currentSessionFileChanges AND sends UI notifications
+            if (context && this.webviewPanel) {
+                this.messageHandler.notifyToolActivityExternal(
+                    toolName,
+                    toolArgs,
+                    context,
+                    this.webviewPanel
+                );
+            }
+
+            // Step 3: Execute the tool locally
+            const executionResult = await this.executeToolLocally(toolName, toolArgs);
+
+            // Step 4: Apply side effects using MessageHandlerService
+            // ✅ This tracks diffs AND sends chat:code-applied notifications
+            if (context && this.webviewPanel) {
+                await this.messageHandler.applyToolSideEffectsExternal(
+                    context,
+                    toolName,
+                    executionResult,
+                    this.webviewPanel
+                );
+            }
+
+            // Step 5: Return result to backend
+            return {
+                success: true,
+                result: executionResult,
+            };
+        } catch (error) {
+            // Send error notification to UI
+            if (this.webviewPanel) {
+                this.webviewPanel.postMessage({
+                    type: "chat:error",
+                    error: error instanceof Error ? error.message : String(error),
+                });
+            }
+
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
+
+    /**
+     * Execute the actual tool operation (file system operations)
+     * Uses the same implementations as ToolExecutionServer
+     */
+    private async executeToolLocally(
+        toolName: string,
+        toolArgs: any
+    ): Promise<any> {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceRoot) {
+            throw new Error("No workspace folder open");
+        }
+
         switch (toolName) {
-            case 'read_file':
-                return await this.readFile(args.path, workspaceRoot);
+            case "paypilot-workspaceContext":
+                return await this.getWorkspaceContext(toolArgs);
 
-            case 'write_file':
-                return await this.writeFile(args.path, args.content, workspaceRoot);
+            case "paypilot-readFile":
+                return await this.readFile(toolArgs);
 
-            case 'list_directory':
-                return await this.listDirectory(args.path, workspaceRoot);
+            case "paypilot-createFile":
+                return await this.createFile(toolArgs);
 
-            case 'search_files':
-                return await this.searchFiles(args.pattern, args.path, workspaceRoot);
+            case "paypilot-updateFile":
+                return await this.updateFile(toolArgs);
 
-            case 'get_diagnostics':
-                return await this.getDiagnostics(args.path);
+            case "paypilot-deleteFile":
+                return await this.deleteFile(toolArgs);
 
-            case 'run_terminal_command':
-                return await this.runTerminalCommand(args.command, workspaceRoot);
+            case "paypilot-createDirectory":
+                return await this.createDirectory(toolArgs);
 
-            case 'get_workspace_info':
-                return await this.getWorkspaceInfo();
-
-            case 'open_file':
-                return await this.openFile(args.path, workspaceRoot);
-
-            case 'get_selection':
-                return await this.getSelection();
-
-            case 'replace_selection':
-                return await this.replaceSelection(args.content);
+            case "paypilot-deleteDirectory":
+                return await this.deleteDirectory(toolArgs);
 
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
     }
 
-    // ========================================================================
-    // TOOL IMPLEMENTATIONS
-    // ========================================================================
-
-    private async readFile(relativePath: string, workspaceRoot: string): Promise<string> {
-        const uri = vscode.Uri.file(`${workspaceRoot}/${relativePath}`);
-        const content = await vscode.workspace.fs.readFile(uri);
-        return JSON.stringify({
-            success: true,
-            content: Buffer.from(content).toString('utf-8')
-        });
-    }
-
-    private async writeFile(relativePath: string, content: string, workspaceRoot: string): Promise<string> {
-        const uri = vscode.Uri.file(`${workspaceRoot}/${relativePath}`);
-        await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
-        return JSON.stringify({
-            success: true,
-            message: `File written: ${relativePath}`
-        });
-    }
-
-    private async listDirectory(relativePath: string, workspaceRoot: string): Promise<string> {
-        const uri = vscode.Uri.file(`${workspaceRoot}/${relativePath}`);
-        const entries = await vscode.workspace.fs.readDirectory(uri);
+    /**
+     * Handle final agent response from server
+     */
+    private async handleAgentResponse(response: AgentResponse): Promise<void> {
+        console.log('[WebSocket] Agent response received');
         
-        const files = entries.map(([name, type]) => ({
-            name,
-            type: type === vscode.FileType.Directory ? 'directory' : 'file'
-        }));
+        if (this.webviewPanel) {
+            // Send the response to the UI
+            this.webviewPanel.postMessage({
+                type: 'chat:message',
+                message: {
+                    role: 'assistant',
+                    content: response.response,
+                    model: response.model_used,
+                    stats: response.stats
+                }
+            });
 
-        return JSON.stringify({ success: true, files });
+            // Send completion status
+            this.webviewPanel.postMessage({
+                type: 'chat:status',
+                status: 'complete',
+                message: `Completed in ${response.stats.iterations} iterations`
+            });
+        }
     }
 
-    private async searchFiles(pattern: string, searchPath: string, workspaceRoot: string): Promise<string> {
-        const files = await vscode.workspace.findFiles(
-            new vscode.RelativePattern(workspaceRoot, `${searchPath}/**/${pattern}`)
-        );
-
-        return JSON.stringify({
-            success: true,
-            files: files.map(f => f.fsPath.replace(workspaceRoot, ''))
-        });
-    }
-
-    private async getDiagnostics(filePath?: string): Promise<string> {
-        let diagnostics: [vscode.Uri, readonly vscode.Diagnostic[]][];
+    /**
+     * Handle status updates from server
+     */
+    private handleStatusUpdate(update: StatusUpdate): void {
+        console.log('[WebSocket] Status:', update.message);
         
-        if (filePath) {
-            const uri = vscode.Uri.file(filePath);
-            const fileDiagnostics = vscode.languages.getDiagnostics(uri);
-            diagnostics = [[uri, fileDiagnostics]];
-        } else {
-            diagnostics = vscode.languages.getDiagnostics();
+        if (this.webviewPanel) {
+            this.webviewPanel.postMessage({
+                type: 'chat:status',
+                status: 'processing',
+                message: update.message
+            });
+        }
+    }
+
+    /**
+     * Handle errors from server
+     */
+    private handleError(error: ErrorMessage): void {
+        console.error('[WebSocket] Server error:', error.message);
+        
+        if (this.webviewPanel) {
+            this.webviewPanel.postMessage({
+                type: 'chat:error',
+                error: error.message
+            });
+        }
+    }
+
+    // ========================================================================
+    // TOOL IMPLEMENTATIONS (from ToolExecutionServer)
+    // ========================================================================
+
+    private async getWorkspaceContext(args: {
+        path?: string;
+        maxDepth?: number;
+    }): Promise<any> {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0].uri;
+        if (!workspaceRoot) {
+            return { error: "No workspace open" };
         }
 
-        const result = diagnostics.map(([uri, diags]) => ({
-            file: uri.fsPath,
-            issues: diags.map(d => ({
-                message: d.message,
-                severity: vscode.DiagnosticSeverity[d.severity],
-                line: d.range.start.line + 1,
-                column: d.range.start.character + 1
-            }))
-        }));
+        const targetPath = args.path || ".";
+        const targetUri = resolveWorkspaceUri(targetPath);
+        const maxDepth = args.maxDepth || 3;
 
-        return JSON.stringify({ success: true, diagnostics: result });
+        const structure = await this.buildDirectoryTree(targetUri, maxDepth, 0);
+
+        return {
+            path: targetPath,
+            structure: structure,
+            workspaceRoot: workspaceRoot.fsPath,
+        };
     }
 
-    private async runTerminalCommand(command: string, cwd: string): Promise<string> {
-        return new Promise((resolve) => {
-            const terminal = vscode.window.createTerminal({
-                name: 'Agent Command',
-                cwd: cwd
-            });
-            
-            terminal.sendText(command);
-            terminal.show();
+    private async buildDirectoryTree(
+        uri: vscode.Uri,
+        maxDepth: number,
+        currentDepth: number
+    ): Promise<any> {
+        if (currentDepth >= maxDepth) {
+            return null;
+        }
 
-            // Note: Getting actual output requires terminal API access
-            // This is a simplified version
-            resolve(JSON.stringify({
-                success: true,
-                message: `Command executed: ${command}`
-            }));
-        });
-    }
+        try {
+            const stat = await vscode.workspace.fs.stat(uri);
 
-    private async getWorkspaceInfo(): Promise<string> {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        
-        return JSON.stringify({
-            success: true,
-            workspace: {
-                folders: workspaceFolders?.map(f => ({
-                    name: f.name,
-                    path: f.uri.fsPath
-                })) || [],
-                name: vscode.workspace.name
+            if (stat.type === vscode.FileType.File) {
+                return {
+                    name: path.basename(uri.fsPath),
+                    type: "file",
+                    path: uri.fsPath,
+                };
             }
-        });
-    }
 
-    private async openFile(relativePath: string, workspaceRoot: string): Promise<string> {
-        const uri = vscode.Uri.file(`${workspaceRoot}/${relativePath}`);
-        const document = await vscode.workspace.openTextDocument(uri);
-        await vscode.window.showTextDocument(document);
+            const entries = await vscode.workspace.fs.readDirectory(uri);
+            const children = await Promise.all(
+                entries
+                    .filter(([name]) => !name.startsWith(".") && name !== "node_modules")
+                    .map(async ([name, type]) => {
+                        const childUri = vscode.Uri.joinPath(uri, name);
+                        if (type === vscode.FileType.Directory) {
+                            return await this.buildDirectoryTree(
+                                childUri,
+                                maxDepth,
+                                currentDepth + 1
+                            );
+                        }
+                        return {
+                            name,
+                            type: "file",
+                            path: childUri.fsPath,
+                        };
+                    })
+            );
 
-        return JSON.stringify({
-            success: true,
-            message: `Opened: ${relativePath}`
-        });
-    }
-
-    private async getSelection(): Promise<string> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            return JSON.stringify({
-                success: false,
-                error: 'No active editor'
-            });
+            return {
+                name: path.basename(uri.fsPath),
+                type: "directory",
+                path: uri.fsPath,
+                children: children.filter(Boolean),
+            };
+        } catch (error) {
+            return { error: `Failed to read: ${uri.fsPath}` };
         }
-
-        const selection = editor.selection;
-        const selectedText = editor.document.getText(selection);
-
-        return JSON.stringify({
-            success: true,
-            text: selectedText,
-            file: editor.document.fileName,
-            startLine: selection.start.line + 1,
-            endLine: selection.end.line + 1
-        });
     }
 
-    private async replaceSelection(content: string): Promise<string> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor) {
-            return JSON.stringify({
+    private async readFile(args: { path: string }): Promise<any> {
+        const uri = resolveWorkspaceUri(args.path);
+
+        try {
+            const content = await vscode.workspace.fs.readFile(uri);
+            return {
+                path: args.path,
+                content: Buffer.from(content).toString("utf8"),
+                success: true,
+            };
+        } catch (error) {
+            return {
+                path: args.path,
+                error: error instanceof Error ? error.message : String(error),
                 success: false,
-                error: 'No active editor'
-            });
+            };
         }
+    }
 
-        await editor.edit(editBuilder => {
-            editBuilder.replace(editor.selection, content);
-        });
+    private async createFile(args: {
+        path: string;
+        content: string;
+    }): Promise<any> {
+        const uri = resolveWorkspaceUri(args.path);
 
-        return JSON.stringify({
-            success: true,
-            message: 'Selection replaced'
-        });
+        try {
+            const content = Buffer.from(args.content, "utf8");
+            await vscode.workspace.fs.writeFile(uri, content);
+
+            return {
+                path: args.path,
+                operation: "create",
+                success: true,
+                message: `Created ${path.basename(args.path)}`,
+            };
+        } catch (error) {
+            return {
+                path: args.path,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
+
+    private async updateFile(args: {
+        path: string;
+        content: string;
+    }): Promise<any> {
+        const uri = resolveWorkspaceUri(args.path);
+
+        try {
+            const content = Buffer.from(args.content, "utf8");
+            await vscode.workspace.fs.writeFile(uri, content);
+
+            return {
+                path: args.path,
+                operation: "update",
+                success: true,
+                message: `Updated ${path.basename(args.path)}`,
+            };
+        } catch (error) {
+            return {
+                path: args.path,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
+
+    private async deleteFile(args: { path: string }): Promise<any> {
+        const uri = resolveWorkspaceUri(args.path);
+
+        try {
+            await vscode.workspace.fs.delete(uri);
+
+            return {
+                path: args.path,
+                operation: "delete",
+                success: true,
+                message: `Deleted ${path.basename(args.path)}`,
+            };
+        } catch (error) {
+            return {
+                path: args.path,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
+
+    private async createDirectory(args: { path: string }): Promise<any> {
+        const uri = resolveWorkspaceUri(args.path);
+
+        try {
+            await vscode.workspace.fs.createDirectory(uri);
+
+            return {
+                path: args.path,
+                operation: "create_directory",
+                success: true,
+                message: `Created directory ${path.basename(args.path)}`,
+            };
+        } catch (error) {
+            return {
+                path: args.path,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
+    }
+
+    private async deleteDirectory(args: {
+        path: string;
+        recursive?: boolean;
+    }): Promise<any> {
+        const uri = resolveWorkspaceUri(args.path);
+
+        try {
+            await vscode.workspace.fs.delete(uri, {
+                recursive: args.recursive ?? true,
+            });
+
+            return {
+                path: args.path,
+                operation: "delete_directory",
+                success: true,
+                message: `Deleted directory ${path.basename(args.path)}`,
+            };
+        } catch (error) {
+            return {
+                path: args.path,
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+            };
+        }
     }
 
     // ========================================================================
@@ -414,18 +651,25 @@ export class AgentWebSocketClient {
 
     private attemptReconnect(): void {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.log('Max reconnection attempts reached');
+            console.log('[WebSocket] Max reconnection attempts reached');
+            
+            if (this.webviewPanel) {
+                this.webviewPanel.postMessage({
+                    type: 'chat:error',
+                    error: 'Unable to reconnect to agent server. Please check connection.'
+                });
+            }
             return;
         }
 
         this.reconnectAttempts++;
         const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
         
-        console.log(`Attempting reconnect in ${delay}ms (attempt ${this.reconnectAttempts})`);
+        console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
         
         setTimeout(() => {
             this.connect().catch(err => {
-                console.error('Reconnection failed:', err);
+                console.error('[WebSocket] Reconnection failed:', err);
             });
         }, delay);
     }
@@ -433,113 +677,4 @@ export class AgentWebSocketClient {
     get isConnected(): boolean {
         return this.ws?.readyState === WebSocket.OPEN;
     }
-}
-
-
-// ============================================================================
-// USAGE EXAMPLE IN EXTENSION
-// ============================================================================
-
-export function createAgentClient(context: vscode.ExtensionContext): AgentWebSocketClient {
-    const config = vscode.workspace.getConfiguration('yourExtension');
-    const serverUrl = config.get<string>('serverUrl', 'ws://localhost:8000/ws/agent');
-    
-    const client = new AgentWebSocketClient(serverUrl);
-
-    // Set up UI callbacks
-    client.onStatusUpdate = (message) => {
-        vscode.window.setStatusBarMessage(`Agent: ${message}`, 3000);
-    };
-
-    client.onResponse = (response) => {
-        // Display response in output channel or webview
-        const outputChannel = vscode.window.createOutputChannel('AI Agent');
-        outputChannel.appendLine('=== Agent Response ===');
-        outputChannel.appendLine(response.response);
-        outputChannel.appendLine(`\nStats: ${JSON.stringify(response.stats)}`);
-        outputChannel.show();
-    };
-
-    client.onError = (error) => {
-        vscode.window.showErrorMessage(`Agent Error: ${error}`);
-    };
-
-    client.onConnectionChange = (connected) => {
-        if (connected) {
-            vscode.window.showInformationMessage('Connected to AI Agent server');
-        } else {
-            vscode.window.showWarningMessage('Disconnected from AI Agent server');
-        }
-    };
-
-    // Connect on activation
-    client.connect().catch(err => {
-        console.error('Initial connection failed:', err);
-    });
-
-    // Cleanup on deactivation
-    context.subscriptions.push({
-        dispose: () => client.disconnect()
-    });
-
-    return client;
-}
-
-
-// ============================================================================
-// COMMAND EXAMPLE
-// ============================================================================
-
-export function registerAgentCommand(
-    context: vscode.ExtensionContext,
-    client: AgentWebSocketClient
-): void {
-    const command = vscode.commands.registerCommand(
-        'yourExtension.askAgent',
-        async () => {
-            if (!client.isConnected) {
-                vscode.window.showErrorMessage('Not connected to agent server');
-                return;
-            }
-
-            const prompt = await vscode.window.showInputBox({
-                prompt: 'What would you like the AI agent to do?',
-                placeHolder: 'e.g., Refactor the selected code to use async/await'
-            });
-
-            if (!prompt) return;
-
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-            if (!workspaceFolder) {
-                vscode.window.showErrorMessage('No workspace folder open');
-                return;
-            }
-
-            // Get current editor context
-            const editor = vscode.window.activeTextEditor;
-            const editorContext = editor ? {
-                file: editor.document.fileName,
-                language: editor.document.languageId,
-                selection: editor.document.getText(editor.selection),
-                lineCount: editor.document.lineCount
-            } : {};
-
-            try {
-                await client.sendAgentRequest({
-                    model_id: 'claude-sonnet-4-20250514',  // or get from settings
-                    user_prompt: prompt,
-                    editor_context: editorContext,
-                    workspace_root: workspaceFolder.uri.fsPath,
-                    max_tokens: 4000,
-                    temperature: 0.7
-                });
-
-                vscode.window.showInformationMessage('Agent request sent...');
-            } catch (error) {
-                vscode.window.showErrorMessage(`Failed to send request: ${error}`);
-            }
-        }
-    );
-
-    context.subscriptions.push(command);
 }

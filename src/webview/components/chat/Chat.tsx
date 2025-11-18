@@ -10,6 +10,7 @@ import { ChatHistoryModal } from './ChatHistoryModal';
  * Main chat component that orchestrates the entire chat interface
  */
 export const Chat: React.FC = () => {
+  const [ragEnabled, setRagEnabled] = useState(false);
   const {
     messages,
     isLoading,
@@ -33,9 +34,7 @@ export const Chat: React.FC = () => {
     handleLoadChat,
     handleDeleteChat,
     cleanupDuplicateHistory
-  } = useChat();
-
-  const [ragEnabled, setRagEnabled] = useState(false);
+  } = useChat(ragEnabled);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const filteredModels = useMemo(() => {

@@ -44,13 +44,23 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
 
+  const formatModelLabel = (model?: ModelInfo): string => {
+    if (!model) {
+      return "";
+    }
+    const sourceLabel = model.source === "backend" ? "Backend" : "VS Code";
+    return `${model.name} (${sourceLabel})`;
+  };
+
   /**
    * Get display name for a model value
    */
   const getModelDisplayName = (value: string): string => {
-    if (!value) return 'Loading models...';
-    const model = availableModels.find(m => m.id === value);
-    return model ? model.name : value;
+    if (!value) {
+      return ragEnabled ? "Select a backend model" : "Select a VS Code model";
+    }
+    const model = availableModels.find((m) => m.id === value);
+    return formatModelLabel(model) || value;
   };
 
   /**
@@ -84,7 +94,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const selectValue = hasValidModelSelection ? selectedModel : '';
   const modelDisplayName = hasValidModelSelection
     ? getModelDisplayName(selectedModel)
-    : (ragEnabled ? 'No backend models' : 'No VS Code models');
+    : (ragEnabled ? 'No backend models available' : 'No VS Code models available');
 
   const getSuggestedPrompt = () => {
     return mode === 'ask' 
@@ -187,7 +197,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 ) : (
                   availableModels.map((model) => (
                     <option key={model.id} value={model.id}>
-                      {model.name}
+                      {formatModelLabel(model)}
                     </option>
                   ))
                 )}

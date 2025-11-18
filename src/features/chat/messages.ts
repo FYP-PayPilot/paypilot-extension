@@ -108,6 +108,12 @@ export interface ChatWorkingMessage {
   message: string;
 }
 
+export interface ChatAgentPlanMessage {
+  type: 'chat:agent-plan';
+  title?: string;
+  steps: string[];
+}
+
 /** Sent after agent mode applies code - shows CodeAppliedCard component */
 export interface ChatCodeAppliedMessage {
   type: 'chat:code-applied';
@@ -185,6 +191,7 @@ export type ExtensionToWebviewMessage =
   | ChatStoppedMessage
   | ModelListMessage
   | ChatWorkingMessage
+  | ChatAgentPlanMessage
   | ChatCodeAppliedMessage
   | ChatToolActivityMessage
   | ChatAgentSummaryMessage
@@ -218,6 +225,10 @@ export interface ChatMessage {
     linesDeleted: number;
     explanation: string;
     operation: 'create' | 'update' | 'delete';
+  };
+  agentPlan?: {
+    title: string;
+    steps: string[];
   };
   toolActivity?: {
     title: string;

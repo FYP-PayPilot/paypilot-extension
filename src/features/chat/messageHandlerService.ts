@@ -151,15 +151,12 @@ export class MessageHandlerService {
     try {
       const mode = typeof msg?.mode === "string" ? msg.mode : "ask";
       const selectedModelSource: "vscode" | "backend" =
-        msg?.source === "vscode" ? "vscode" : "backend";
+        msg?.source === "backend" ? "backend" : "vscode";
 
       // Get configuration to determine which agent mode to use
       const cfg = vscode.workspace.getConfiguration("paypilot");
-      const useBackendAgent = cfg.get<boolean>("useBackendAgent", false);
       const agentUsesBackend =
-        mode === "agent" &&
-        (selectedModelSource === "backend" ||
-          (useBackendAgent && selectedModelSource !== "vscode"));
+        mode === "agent" && selectedModelSource === "backend";
 
       // Get model selection
       let selectedModel: vscode.LanguageModelChat | null = null;

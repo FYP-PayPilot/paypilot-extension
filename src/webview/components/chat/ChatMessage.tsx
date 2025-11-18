@@ -162,6 +162,21 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
     );
   }
 
+  if (message.agentPlan) {
+    return (
+      <div className={assistantCardClass}>
+        <div className="agent-plan-card">
+          <div className="agent-plan-title">{message.agentPlan.title}</div>
+          <ol className="agent-plan-list">
+            {message.agentPlan.steps.map((step, idx) => (
+              <li key={idx}>{step}</li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    );
+  }
+
   if (message.toolActivity) {
     return (
       <div className={assistantCardClass}>

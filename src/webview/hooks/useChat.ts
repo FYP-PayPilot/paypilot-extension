@@ -6,7 +6,7 @@ import { useVSCode } from '../context/VSCodeContext';
 /**
  * Chat state management hook - handles AI streaming and real-time UI updates
  */
-export const useChat = () => {
+export const useChat = (ragEnabled: boolean = false) => {
   const { postMessage, onMessage } = useVSCode();
 
   const [state, setState] = useState<ChatState>({
@@ -18,7 +18,7 @@ export const useChat = () => {
 
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>(''); // Start empty until models load
-  const [selectedModelSource, setSelectedModelSource] = useState<'vscode' | 'backend' | undefined>(undefined);
+  const [selectedModelSource, setSelectedModelSource] = useState<'vscode' | 'backend'>('vscode');
   const hasAutoSelectedModel = useRef(false); // Track if we've done initial auto-selection
 
   // Chat history modal state
@@ -142,6 +142,7 @@ export const useChat = () => {
       if (
         entry.role === 'assistant' &&
         !entry.isWorking &&
+        !entry.agentPlan &&
         !entry.codeApplied &&
         !entry.toolActivity
       ) {
@@ -267,16 +268,51 @@ export const useChat = () => {
   // Handle model selection
   const handleModelChange = useCallback((modelId: string) => {
     const model = availableModels.find((m) => m.id === modelId);
+    const source: 'vscode' | 'backend' =
+      model?.source === 'backend' ? 'backend' : 'vscode';
     setSelectedModel(modelId);
-    setSelectedModelSource(model?.source ?? undefined);
+    setSelectedModelSource(source);
     postMessage({
       type: 'model:change',
       model: modelId,
-      source: model?.source ?? undefined,
+      source,
     });
     },
     [postMessage, availableModels]
   );
+
+  useEffect(() => {
+    const desiredSource: 'vscode' | 'backend' = ragEnabled ? 'backend' : 'vscode';
+    const allowedModels = availableModels.filter((model) =>
+      desiredSource === 'backend'
+        ? model.source === 'backend'
+        : !model.source || model.source === 'vscode'
+    );
+    const hasDesiredSelection =
+      selectedModel !== '' &&
+      allowedModels.some((model) => model.id === selectedModel);
+
+    if (!hasDesiredSelection) {
+      if (allowedModels.length > 0) {
+        handleModelChange(allowedModels[0].id);
+      } else {
+        if (selectedModel !== '') {
+          setSelectedModel('');
+        }
+        if (selectedModelSource !== desiredSource) {
+          setSelectedModelSource(desiredSource);
+        }
+      }
+    } else if (selectedModelSource !== desiredSource) {
+      setSelectedModelSource(desiredSource);
+    }
+  }, [
+    ragEnabled,
+    availableModels,
+    selectedModel,
+    selectedModelSource,
+    handleModelChange,
+  ]);
 
   // Handle context file requests
   const handleAddContext = useCallback(() => {
@@ -501,6 +537,41 @@ export const useChat = () => {
           });
           break;
 
+        case 'chat:agent-plan':
+          if (Array.isArray(message.steps) && message.steps.length > 0) {
+            setState((prev) => {
+              const messages = [...prev.messages];
+              const planMessage: ChatMessage = {
+                id: generateMessageId(),
+                content: message.title ?? "Agent plan",
+                role: "assistant",
+                timestamp: Date.now(),
+                agentPlan: {
+                  title: message.title ?? "Agent plan",
+                  steps: message.steps,
+                },
+              };
+
+              const lastPlanIndex = (() => {
+                for (let index = messages.length - 1; index >= 0; index -= 1) {
+                  if (messages[index].agentPlan) {
+                    return index;
+                  }
+                }
+                return -1;
+              })();
+
+              if (lastPlanIndex >= 0) {
+                messages[lastPlanIndex] = planMessage;
+              } else {
+                messages.push(planMessage);
+              }
+
+              return { ...prev, messages };
+            });
+          }
+          break;
+
         case "chat:multi-file-edit-summary":
           setState((prev) => {
             const messages = [...prev.messages];
@@ -593,8 +664,16 @@ export const useChat = () => {
                 content: message.text,                    // Final complete text
                 isStreaming: false                        // Stop streaming updates
               };
+            } else if (message.text) {
+              messages.push({
+                id: generateMessageId(),
+                content: message.text,
+                role: 'assistant',
+                timestamp: Date.now(),
+                isStreaming: false
+              });
             }
-            
+
             return {
               ...prev,
               messages,
@@ -662,7 +741,9 @@ export const useChat = () => {
               
             if (preferredModel) {
               setSelectedModel(preferredModel.id);
-              setSelectedModelSource(preferredModel.source ?? undefined);
+              setSelectedModelSource(
+                preferredModel.source === 'backend' ? 'backend' : 'vscode'
+              );
             }
             hasAutoSelectedModel.current = true;
           }

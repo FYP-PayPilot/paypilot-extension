@@ -44,23 +44,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 }) => {
   const [inputValue, setInputValue] = useState('');
 
-  const formatModelLabel = (model?: ModelInfo): string => {
-    if (!model) {
-      return "";
-    }
-    const sourceLabel = model.source === "backend" ? "Backend" : "VS Code";
-    return `${model.name} (${sourceLabel})`;
-  };
-
-  /**
-   * Get display name for a model value
-   */
   const getModelDisplayName = (value: string): string => {
-    if (!value) {
-      return ragEnabled ? "Select a backend model" : "Select a VS Code model";
-    }
-    const model = availableModels.find((m) => m.id === value);
-    return formatModelLabel(model) || value;
+    if (!value) return ragEnabled ? 'Select a backend model' : 'Select a VS Code model';
+    const model = availableModels.find(m => m.id === value);
+    return model ? model.name : value;
   };
 
   /**
@@ -96,18 +83,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     ? getModelDisplayName(selectedModel)
     : (ragEnabled ? 'No backend models available' : 'No VS Code models available');
 
-  const getSuggestedPrompt = () => {
-    return mode === 'ask' 
-      ? 'Explain the code'
-      : 'Help me to integrate paypal services into my code';
-  };
-
-  const handleSuggestedPromptClick = () => {
-    if (!disabled) {
-      setInputValue(getSuggestedPrompt());
-    }
-  };
-
   return (
     <div className="chat-input">
       {/* Add Context button - moved above input */}
@@ -116,18 +91,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           onClick={onAddContext}
           disabled={disabled}
         />
-      </div>
-
-      {/* Suggested Prompt Row */}
-      <div className="suggested-prompt-row">
-        <button
-          className="suggested-prompt-button"
-          onClick={handleSuggestedPromptClick}
-          disabled={disabled}
-          type="button"
-        >
-          {getSuggestedPrompt()}
-        </button>
       </div>
 
       {/* Input row */}
@@ -197,7 +160,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 ) : (
                   availableModels.map((model) => (
                     <option key={model.id} value={model.id}>
-                      {formatModelLabel(model)}
+                      {model.name}
                     </option>
                   ))
                 )}

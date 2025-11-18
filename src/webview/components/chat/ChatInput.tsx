@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '../ui/Button';
 import { Textarea } from '../ui/Textarea';
 import { ContextButton } from './ContextButton';
@@ -24,25 +24,40 @@ interface ChatInputProps {
   onRagToggle: (enabled: boolean) => void;
 }
 
+const ASK_MODE_SUGGESTIONS: string[] = [
+  "Explain this codebase to me",
+  "What is the best way to integrate PayPal into this application?",
+  "How can I modularise this codebase?"
+];
+
+const AGENT_MODE_SUGGESTIONS: string[] = [
+  "Fix the errors in this file",
+  "Integrate PayPal payment service functionality to this codebase",
+  "Identify and remove all depreciated code",
+  "Apply domain driven design principles to this codebase"
+];
+
 /**
  * Modern chat input component with send/stop functionality and footer controls
  */
-export const ChatInput: React.FC<ChatInputProps> = ({ 
-  onSendMessage, 
+export const ChatInput: React.FC<ChatInputProps> = ({
+  onSendMessage,
   onStopGeneration,
-  disabled = false, 
+  disabled = false,
   isLoading = false,
   mode,
   onModeChange,
   selectedModel,
   onModelChange,
   availableModels,
-  contextFiles,
   onAddContext,
   ragEnabled,
   onRagToggle
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const [placeholderText, setPlaceholderText] = useState<string>(
+    ASK_MODE_SUGGESTIONS[0]
+  );
 
   const getModelDisplayName = (value: string): string => {
     if (!value) return ragEnabled ? 'Select a backend model' : 'Select a VS Code model';
@@ -55,7 +70,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
    */
   const handleSend = () => {
     if (!inputValue.trim() || disabled) return;
-    
+
     onSendMessage(inputValue.trim(), mode);
     setInputValue('');
   };
@@ -77,6 +92,60 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  useEffect(() => {
+    const prompts =
+      mode === "ask" ? ASK_MODE_SUGGESTIONS : AGENT_MODE_SUGGESTIONS;
+    if (prompts.length === 0) {
+      return;
+    }
+
+    let promptIndex = 0;
+    let charIndex = 0;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const typeRemainingCharacters = () => {
+      if (cancelled) {
+        return;
+      }
+      const currentPrompt = prompts[promptIndex];
+      if (!currentPrompt) {
+        return;
+      }
+
+      if (charIndex < currentPrompt.length) {
+        charIndex += 1;
+        setPlaceholderText(currentPrompt.slice(0, charIndex));
+        timeoutId = setTimeout(typeRemainingCharacters, 60);
+      } else {
+        timeoutId = setTimeout(() => {
+          promptIndex = (promptIndex + 1) % prompts.length;
+          startNextPrompt();
+        }, 2000);
+      }
+    };
+
+    const startNextPrompt = () => {
+      const nextPrompt = prompts[promptIndex];
+      if (!nextPrompt) {
+        setPlaceholderText("");
+        return;
+      }
+      charIndex = 1;
+      setPlaceholderText(nextPrompt.slice(0, charIndex));
+      timeoutId = setTimeout(typeRemainingCharacters, 80);
+    };
+
+    startNextPrompt();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [mode]);
+
   const hasValidModelSelection = availableModels.some((model) => model.id === selectedModel);
   const selectValue = hasValidModelSelection ? selectedModel : '';
   const modelDisplayName = hasValidModelSelection
@@ -87,7 +156,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     <div className="chat-input">
       {/* Add Context button - moved above input */}
       <div className="context-button-row">
-        <ContextButton 
+        <ContextButton
           onClick={onAddContext}
           disabled={disabled}
         />
@@ -100,7 +169,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             value={inputValue}
             onChange={setInputValue}
             onKeyDown={handleKeyDown}
-            placeholder={mode === 'agent' ? "Tell me what to change in your code..." : "Ask about your code..."}
+            placeholder={
+              placeholderText ||
+              (mode === "ask"
+                ? ASK_MODE_SUGGESTIONS[0]
+                : AGENT_MODE_SUGGESTIONS[0])
+            }
             disabled={disabled}
             autoResize
             maxHeight={120}

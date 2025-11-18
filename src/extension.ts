@@ -24,7 +24,12 @@ export async function activate(context: vscode.ExtensionContext) {
     chatTools
   );
 
-  const wsClient = new AgentWebSocketClient(messageHandlerService, 'ws://localhost:8000/ws/agent');
+  const FASTAPI_BASE_URL = 'ws://localhost:8000/ws/agent'; // Update this
+
+  const wsClient = new AgentWebSocketClient(messageHandlerService, FASTAPI_BASE_URL);
+  await wsClient.connect();
+  context.globalState.update('wsClient', wsClient);
+  messageHandlerService.setWebSocketClient(wsClient);
 
   const chatProvider = new ChatViewProvider(context);
 
@@ -123,9 +128,6 @@ export async function activate(context: vscode.ExtensionContext) {
 
   // Bridge the webview messages back into the message handler.
   chatProvider.onMessage(async (msg: unknown, panel: vscode.Webview) => {
-    await wsClient.connect();
-    wsClient.setWebview(panel);
-
     if (messageHandlerService) {
       await messageHandlerService.handleMessage(msg, panel);
     }
@@ -137,5 +139,6 @@ export async function activate(context: vscode.ExtensionContext) {
  */
 export function deactivate(): void {
   messageHandlerService?.dispose();
+  wsClient?.disconnect();
   messageHandlerService = undefined;
 }

@@ -354,7 +354,10 @@ export class AgentWebSocketClient {
       setTimeout(() => {
         if (!sent) {
           errorMessage = `Tool execution timeout for ${request.tool_name}`;
-          console.error(`[WebSocket] Tool execution timeout:`, request.tool_name);
+          console.error(
+            `[WebSocket] Tool execution timeout:`,
+            request.tool_name
+          );
           if (this.ws?.readyState === WebSocket.OPEN) {
             this.ws.send(
               JSON.stringify({
@@ -389,7 +392,14 @@ export class AgentWebSocketClient {
               result: result,
             })
           );
-          console.log(`[WebSocket] Sent tool_result for ${request.tool_name}:`, result);
+          console.log(
+            `[${new Date().toISOString()}] [WebSocket] Sent tool_result for ${request.tool_name}:`,
+            JSON.stringify({
+              type: "tool_result",
+              request_id: request.request_id,
+              result: result,
+            })
+          );
           sent = true;
         }
       }
@@ -407,7 +417,10 @@ export class AgentWebSocketClient {
             },
           })
         );
-        console.log(`[WebSocket] Sent tool_result error for ${request.tool_name}:`, errorMessage);
+        console.log(
+          `[WebSocket] Sent tool_result error for ${request.tool_name}:`,
+          errorMessage
+        );
         sent = true;
       }
     }
@@ -518,7 +531,9 @@ export class AgentWebSocketClient {
 
     // Always ensure request_id is present
     if (!response.request_id) {
-      console.warn("[WebSocket] Agent response missing request_id, attempting to resolve with best match.");
+      console.warn(
+        "[WebSocket] Agent response missing request_id, attempting to resolve with best match."
+      );
       // Try to resolve with last pending request
       const lastRequestId = Array.from(this.pendingRequests.keys()).pop();
       if (lastRequestId) {
@@ -581,7 +596,9 @@ export class AgentWebSocketClient {
 
     // Always ensure request_id is present
     if (!error.request_id) {
-      console.warn("[WebSocket] Error message missing request_id, attempting to resolve with best match.");
+      console.warn(
+        "[WebSocket] Error message missing request_id, attempting to resolve with best match."
+      );
       // Try to resolve with last pending request
       const lastRequestId = Array.from(this.pendingRequests.keys()).pop();
       if (lastRequestId) {

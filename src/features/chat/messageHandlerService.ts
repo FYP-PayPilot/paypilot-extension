@@ -362,9 +362,6 @@ export class MessageHandlerService {
 
   /**
    * Execute backend agent mode via FastAPI.
-   * The backend handles the agent loop and calls ToolExecutionServer for tool execution.
-   * The integrated ToolExecutionServer automatically handles all UI notifications and diff tracking.
-   *
    * @param modelId The model ID to use for the backend request.
    * @param composed The fully composed prompt to send to the backend.
    * @param panel The webview panel to communicate back to.
@@ -1418,7 +1415,7 @@ export class MessageHandlerService {
   }
 
   /**
-   * Public method for ToolExecutionServer to notify tool activity.
+   * Public method for WebSocketClient to notify tool activity.
    * Reuses the existing notifyToolActivity infrastructure to ensure
    * consistent UI updates and state tracking.
    *
@@ -1451,7 +1448,7 @@ export class MessageHandlerService {
   }
 
   /**
-   * Public method for ToolExecutionServer to apply tool side effects.
+   * Public method for WebSocketClient to apply tool side effects.
    * Reuses the existing applyToolSideEffects infrastructure.
    *
    * @param context - The tool context with file state and operation
@@ -1493,16 +1490,16 @@ export class MessageHandlerService {
   }
 
   /**
-   * Expose DiffService for ToolExecutionServer.
-   * ToolExecutionServer needs access to calculate diffs and track changes.
+   * Expose DiffService for WebSocketClient.
+   * WebSocketClient needs access to calculate diffs and track changes.
    */
   public getDiffServiceForTools(): DiffService {
     return this.diffService;
   }
 
   /**
-   * Expose prepareToolContext for ToolExecutionServer.
-   * This allows ToolExecutionServer to use the same context preparation logic.
+   * Expose prepareToolContext for WebSocketClient.
+   * This allows WebSocketClient to use the same context preparation logic.
    */
   public async prepareToolContextExternal(
     toolName: string,

@@ -550,17 +550,6 @@ export class AgentWebSocketClient {
 
     // Call legacy callback if set
     this.onResponse?.(response);
-
-    // Send to webview
-    if (this.webviewPanel) {
-      const finalText = response.response + '\nmodel used: ' + response.model_used + '\ntokens used: ' + response.stats.tokens_used;
-
-      // Backend agent is complete
-      this.webviewPanel.postMessage({
-        type: "chat:done",
-        text: finalText,
-      });
-    }
   }
 
   /**

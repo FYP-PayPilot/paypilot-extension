@@ -255,7 +255,7 @@ export class MessageHandlerService {
         if (agentUsesBackend) {
           await this.handleBackendAgentMode(
             modelId!,
-            composed,
+            userPrompt,
             panel,
             abortController
           );
@@ -354,7 +354,7 @@ export class MessageHandlerService {
 
     await this.handleAskModeBackend(
       options.modelId,
-      options.composedPrompt,
+      options.userPrompt,
       options.panel,
       options.abortController
     );
@@ -363,14 +363,14 @@ export class MessageHandlerService {
   /**
    * Execute backend agent mode via FastAPI.
    * @param modelId The model ID to use for the backend request.
-   * @param composed The fully composed prompt to send to the backend.
+   * @param prompt The fully composed prompt to send to the backend.
    * @param panel The webview panel to communicate back to.
    * @param abortController Controller to allow cancellation of the request.
    * @returns Promise that resolves when processing completes.
    */
   private async handleBackendAgentMode(
     modelId: string,
-    composed: string,
+    prompt: string,
     panel: vscode.Webview,
     abortController: AbortController
   ): Promise<void> {
@@ -407,7 +407,7 @@ export class MessageHandlerService {
       const response = await this.wsClient.sendAgentRequestWithCompletion(
         {
           model_id: modelId,
-          user_prompt: composed,
+          user_prompt: prompt,
           editor_context: editorContext,
           file_context: fileContext,
           max_tokens: 4000,
@@ -415,6 +415,18 @@ export class MessageHandlerService {
         },
         abortController
       );
+
+      // Send to webview
+      if (panel) {
+        const finalText = response.response + '\nmodel used: ' + response.model_used + '\ntokens used: ' + response.stats.tokens_used;
+
+        console.log('Final agent text:' + finalText);
+        // Backend agent is complete
+        panel.postMessage({
+          type: "chat:done",
+          text: finalText,
+        });
+      }
 
       // Send multi-file edit summary if there were changes
       this.sendMultiFileEditSummary(panel);

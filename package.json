@@ -74,6 +74,11 @@
         "paypilot.useBackendAgent": {
           "type": "boolean",
           "default": true
+        },
+        "paypilot.agentServerUrl": {
+          "type": "string",
+          "default": "ws://localhost:8000/ws/agent",
+          "description": "WebSocket URL for the PayPilot agent server"
         }
       }
     },

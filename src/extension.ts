@@ -23,13 +23,26 @@ export async function activate(context: vscode.ExtensionContext) {
     chatTools
   );
 
-  const FASTAPI_BASE_URL = "ws://localhost:8000/ws/agent"; // Update this
+  const config = vscode.workspace.getConfiguration("paypilot");
+  const FASTAPI_BASE_URL =
+    config.get<string>("agentServerUrl") || "ws://localhost:8000/ws/agent";
 
   const wsClient = new AgentWebSocketClient(
     messageHandlerService,
     FASTAPI_BASE_URL
   );
-  await wsClient.connect();
+  try {
+    await wsClient.connect();
+    messageHandlerService.setWebSocketClient(wsClient);
+    vscode.window.showInformationMessage("PayPilot: Connected to agent server");
+  } catch (error) {
+    vscode.window.showWarningMessage(
+      `PayPilot: Could not connect to agent server at ${FASTAPI_BASE_URL}. ` +
+        `Extension will work with limited functionality. Error: ${error}`
+    );
+    console.error("Failed to connect to WebSocket:", error);
+    // Continue activating the extension even without WebSocket
+  }
   messageHandlerService.setWebSocketClient(wsClient);
 
   const chatProvider = new ChatViewProvider(context);

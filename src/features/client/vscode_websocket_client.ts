@@ -553,20 +553,12 @@ export class AgentWebSocketClient {
 
     // Send to webview
     if (this.webviewPanel) {
-      this.webviewPanel.postMessage({
-        type: "chat:message",
-        message: {
-          role: "assistant",
-          content: response.response,
-          model: response.model_used,
-          stats: response.stats,
-        },
-      });
+      const finalText = response.response + '\nmodel used: ' + response.model_used + '\ntokens used: ' + response.stats.tokens_used;
 
+      // Backend agent is complete
       this.webviewPanel.postMessage({
-        type: "chat:status",
-        status: "complete",
-        message: `Completed in ${response.stats.iterations} iterations`,
+        type: "chat:done",
+        text: finalText,
       });
     }
   }

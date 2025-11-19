@@ -285,6 +285,7 @@ export class AgentWebSocketClient {
    * Handle incoming messages from server
    */
   private async handleMessage(data: string): Promise<void> {
+    console.log("[WebSocket] Incoming message:", data);
     try {
       const message: ServerMessage = JSON.parse(data);
 
@@ -311,9 +312,28 @@ export class AgentWebSocketClient {
 
         default:
           console.warn("[WebSocket] Unknown message type:", message);
+          // Send error back to server for unknown message type
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(
+              JSON.stringify({
+                type: "error",
+                message: `Unknown message type: ${(message as any).type}`,
+                request_id: (message as any).request_id || undefined,
+              })
+            );
+          }
       }
     } catch (error) {
       console.error("[WebSocket] Failed to parse message:", error);
+      // Send error back to server for malformed message
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(
+          JSON.stringify({
+            type: "error",
+            message: `Malformed message: ${error}`,
+          })
+        );
+      }
     }
   }
 
@@ -326,38 +346,70 @@ export class AgentWebSocketClient {
       request.tool_args
     );
 
+    let result: any = null;
+    let errorMessage: string | null = null;
+    let sent = false;
+    // Timeout logic: if tool execution takes >8s, send error result
+    const timeoutPromise = new Promise((resolve) => {
+      setTimeout(() => {
+        if (!sent) {
+          errorMessage = `Tool execution timeout for ${request.tool_name}`;
+          console.error(`[WebSocket] Tool execution timeout:`, request.tool_name);
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(
+              JSON.stringify({
+                type: "tool_result",
+                request_id: request.request_id,
+                result: {
+                  success: false,
+                  error: errorMessage,
+                },
+              })
+            );
+            sent = true;
+          }
+        }
+        resolve(null);
+      }, 8000);
+    });
+
     try {
       // Execute tool using integrated approach
-      const result = await this.executeToolIntegrated(
-        request.tool_name,
-        request.tool_args
-      );
-
-      // Send result back to server
-      this.ws?.send(
-        JSON.stringify({
-          type: "tool_result",
-          request_id: request.request_id,
-          result: JSON.stringify(result),
-        })
-      );
+      result = await Promise.race([
+        this.executeToolIntegrated(request.tool_name, request.tool_args),
+        timeoutPromise,
+      ]);
+      if (!sent) {
+        // Send result back to server as JSON object (not stringified)
+        if (this.ws?.readyState === WebSocket.OPEN) {
+          this.ws.send(
+            JSON.stringify({
+              type: "tool_result",
+              request_id: request.request_id,
+              result: result,
+            })
+          );
+          console.log(`[WebSocket] Sent tool_result for ${request.tool_name}:`, result);
+          sent = true;
+        }
+      }
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-
+      errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[WebSocket] Tool execution error:`, error);
-
-      // Send error result back to server
-      this.ws?.send(
-        JSON.stringify({
-          type: "tool_result",
-          request_id: request.request_id,
-          result: JSON.stringify({
-            success: false,
-            error: errorMessage,
-          }),
-        })
-      );
+      if (!sent && this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(
+          JSON.stringify({
+            type: "tool_result",
+            request_id: request.request_id,
+            result: {
+              success: false,
+              error: errorMessage,
+            },
+          })
+        );
+        console.log(`[WebSocket] Sent tool_result error for ${request.tool_name}:`, errorMessage);
+        sent = true;
+      }
     }
   }
 
@@ -464,6 +516,16 @@ export class AgentWebSocketClient {
   private async handleAgentResponse(response: AgentResponse): Promise<void> {
     console.log("[WebSocket] Agent response received");
 
+    // Always ensure request_id is present
+    if (!response.request_id) {
+      console.warn("[WebSocket] Agent response missing request_id, attempting to resolve with best match.");
+      // Try to resolve with last pending request
+      const lastRequestId = Array.from(this.pendingRequests.keys()).pop();
+      if (lastRequestId) {
+        response.request_id = lastRequestId;
+      }
+    }
+
     // Resolve pending request if tracked
     if (response.request_id && this.pendingRequests.has(response.request_id)) {
       const { resolve } = this.pendingRequests.get(response.request_id)!;
@@ -516,6 +578,16 @@ export class AgentWebSocketClient {
    */
   private handleError(error: ErrorMessage): void {
     console.error("[WebSocket] Server error:", error.message);
+
+    // Always ensure request_id is present
+    if (!error.request_id) {
+      console.warn("[WebSocket] Error message missing request_id, attempting to resolve with best match.");
+      // Try to resolve with last pending request
+      const lastRequestId = Array.from(this.pendingRequests.keys()).pop();
+      if (lastRequestId) {
+        error.request_id = lastRequestId;
+      }
+    }
 
     // Reject specific pending request if request_id provided
     if (error.request_id && this.pendingRequests.has(error.request_id)) {

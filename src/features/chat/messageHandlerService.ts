@@ -167,7 +167,8 @@ export class MessageHandlerService {
 
       if (mode === "agent") {
         // Backend agent mode - use backend models
-        if (agentUsesBackend) {
+        if (agentUsesBackend && this.wsClient && this.wsClient.isConnected) {
+          // Backend agent mode - use backend model
           if (!modelId) {
             const backendModels = await getBackendModels();
             if (backendModels.length === 0) {

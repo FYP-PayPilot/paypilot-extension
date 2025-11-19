@@ -419,15 +419,12 @@ export class MessageHandlerService {
         abortController
       );
 
-      panel.postMessage({
-        type: "chat:done",
-        text: response.response, // Note: response.response
-      });
+      const finalText = response.response + '\nmodel used: ' + response.model_used + '\tokens used: ' + response.stats.tokens_used;
 
       // Backend agent is complete
       panel.postMessage({
         type: "chat:done",
-        text: response,
+        text: finalText,
       });
 
       // Send multi-file edit summary if there were changes

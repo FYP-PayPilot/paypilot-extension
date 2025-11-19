@@ -10,7 +10,7 @@ interface ToolActivityCardProps {
 
 export const ToolActivityCard: React.FC<ToolActivityCardProps> = ({
   title,
-  detail,
+  detail: _detail,
   filePath,
   operation,
   onCardClick,
@@ -102,7 +102,6 @@ export const ToolActivityCard: React.FC<ToolActivityCardProps> = ({
           </span>
         )}
       </div>
-      {detail && <div className="tool-activity-detail">{detail}</div>}
     </div>
   );
 };

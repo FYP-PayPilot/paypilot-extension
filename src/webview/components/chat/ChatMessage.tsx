@@ -131,13 +131,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ message }) => {
   const parts = formatMessageContent(message.content);
   const isUser = message.role === 'user';
 
-  // Handle working state
-  if (message.isWorking) {
+  // Handle thinking/working state
+  if (message.isThinking || message.isWorking) {
     return (
-      <div className="message message-assistant">
-        <div className="working-indicator">
-          <div className="loading-spinner"></div>
-          <span>{message.content}</span>
+      <div className="message message-assistant message-card">
+        <div
+          className="thinking-indicator"
+          role="status"
+          aria-label="Assistant is working"
+        >
+          <span className="thinking-dot" />
+          <span className="thinking-dot" />
+          <span className="thinking-dot" />
         </div>
       </div>
     );

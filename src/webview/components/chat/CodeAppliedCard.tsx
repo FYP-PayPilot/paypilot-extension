@@ -15,7 +15,7 @@ export const CodeAppliedCard: React.FC<CodeAppliedCardProps> = ({
   filePath,
   linesAdded,
   linesDeleted,
-  explanation,
+  explanation: _explanation,
   operation,
   onCardClick
 }) => {
@@ -62,11 +62,6 @@ export const CodeAppliedCard: React.FC<CodeAppliedCardProps> = ({
           )}
         </div>
       </div>
-      {explanation && (
-        <div className="code-applied-explanation">
-          {explanation}
-        </div>
-      )}
     </div>
   );
 };

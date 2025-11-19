@@ -241,6 +241,7 @@ export interface ChatMessage {
     totalLinesAdded: number;
     totalLinesDeleted: number;
   };
+  isThinking?: boolean;
 }
 
 /** Main state interface used in useChat hook for chat UI management */

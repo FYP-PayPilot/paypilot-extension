@@ -23,7 +23,6 @@ import {
   resolveWorkspacePath,
   getRelativePath,
   resolveWorkspaceUri,
-  relativeUriPath,
   getWorkspaceRoot,
 } from "../../utils/workspace";
 
@@ -54,7 +53,6 @@ export class MessageHandlerService {
   private readonly contextMessageService: ContextMessageService;
   // private readonly mcpMessageService: McpMessageService;
   private readonly modelMessageService: ModelMessageService;
-  private agentChangeLog: string[] = [];
   private currentSessionFileChanges: SessionFileChange[] = [];
 
   constructor(
@@ -163,10 +161,10 @@ export class MessageHandlerService {
       let modelId: string | undefined = msg?.model;
 
       if (mode === "agent") {
+        // Backend agent mode - use backend models
         if (agentUsesBackend) {
-          // Backend agent mode - use backend model
           if (!modelId) {
-            const backendModels = await getBackendModels(); // TODO: update this endpoint
+            const backendModels = await getBackendModels();
             if (backendModels.length === 0) {
               panel.postMessage({
                 type: "chat:error",
@@ -284,6 +282,7 @@ export class MessageHandlerService {
       });
     }
   }
+
 
   private async ensureVSCodeModel(
     requestedId: string | undefined,
@@ -464,20 +463,23 @@ export class MessageHandlerService {
       message: "Analyzing code and preparing changes...",
     });
 
+    // Kick off a new LM conversation seeded with the composed prompt that contains
+    // the user request, contextual instructions, and any extra files passed in.
     const conversation: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(composed),
     ];
     const initialWorkspaceContext = await this.fetchWorkspaceContextSnapshot(panel);
     if (initialWorkspaceContext) {
+      // Provide an upfront snapshot of the workspace layout so the model can
+      // orient itself before it begins calling tools.
       conversation.push(
         vscode.LanguageModelChatMessage.User(
           `Workspace context snapshot:\n${initialWorkspaceContext}`
         )
       );
     }
-    this.agentChangeLog = [];
-    const agentPlan: string[] = [];
-    let planSent = false;
+    // Aggregate the assistant's natural language output from the streaming parts.
+    let aggregatedResponse = "";
 
     const cancellationTokenSource = new vscode.CancellationTokenSource();
     const { signal } = abortController;
@@ -486,10 +488,10 @@ export class MessageHandlerService {
     };
     signal.addEventListener("abort", listener, { once: true });
 
-    let aggregatedResponse = "";
-
     try {
       while (true) {
+        // Ask the VS Code language model to continue the conversation and let it
+        // decide whether it needs any tools (workspace context, read/write, etc).
         const response = await selectedModel.sendRequest(
           conversation,
           {
@@ -521,42 +523,14 @@ export class MessageHandlerService {
         }
 
         if (toolCalls.length === 0) {
-          if (!planSent) {
-            const planSteps =
-              agentPlan.length > 0
-                ? agentPlan
-                : this.parsePlanLines(aggregatedResponse);
-            if (planSteps.length > 0) {
-              if (agentPlan.length === 0) {
-                agentPlan.push(...planSteps);
-              }
-              panel.postMessage({
-                type: "chat:agent-plan",
-                title: "Proposed plan",
-                steps: planSteps,
-              });
-              planSent = true;
-            }
-          }
-          if (!planSent && agentPlan.length > 0) {
-            panel.postMessage({
-              type: "chat:agent-plan",
-              title: "Proposed plan",
-              steps: agentPlan,
-            });
-            planSent = true;
-          }
-          const summary = this.formatAgentChangeSummary();
-          const baseText = aggregatedResponse.trim();
-          const finalText = summary
-            ? baseText
-              ? `${baseText}\n\n---\n${summary}`
-              : summary
-            : aggregatedResponse;
+          // No pending tool calls means the model is satisfied with the accumulated
+          // workspace actions. Conclude by delivering the textual response and push
+          // a dedicated summary card that combines the model's explanation with the
+          // structured list of file operations.
+          const trimmedResponse = aggregatedResponse.trim();
+          const finalText = trimmedResponse || "Agent execution completed.";
+
           panel.postMessage({ type: "chat:done", text: finalText });
-          if (summary) {
-            panel.postMessage({ type: "chat:agent-summary", text: summary });
-          }
 
           // Send multi-file edit summary if there were file changes
           this.sendMultiFileEditSummary(panel);
@@ -564,23 +538,16 @@ export class MessageHandlerService {
         }
 
         if (textParts.length > 0) {
+          // Persist any streamed prose so the model can keep building upon it.
           conversation.push(
             vscode.LanguageModelChatMessage.Assistant(textParts)
           );
-          if (!planSent) {
-            const planSteps = this.extractPlanSteps(textParts);
-            if (planSteps.length > 0) {
-              agentPlan.push(...planSteps);
-              panel.postMessage({
-                type: "chat:agent-plan",
-                title: "Proposed plan",
-                steps: planSteps,
-              });
-              planSent = true;
-            }
-          }
         }
 
+        // Execute every requested tool sequentially. Each invocation results in:
+        //   1. Detailed tool activity cards in the chat (workspace context, file reads, etc)
+        //   2. Code-applied cards with diff summaries when mutations occur
+        //   3. Conversation updates so the model can see the tool output
         for (let index = 0; index < toolCalls.length; index += 1) {
           const call = toolCalls[index];
           try {
@@ -591,18 +558,7 @@ export class MessageHandlerService {
             conversation.push(
               vscode.LanguageModelChatMessage.User([resultPart])
             );
-            if (!planSent) {
-              const planSteps = this.extractPlanFromToolResult(resultPart);
-              if (planSteps.length > 0) {
-                agentPlan.push(...planSteps);
-                panel.postMessage({
-                  type: "chat:agent-plan",
-                  title: "Proposed plan",
-                  steps: planSteps,
-                });
-                planSent = true;
-              }
-            }
+
             const hasMoreCalls = index < toolCalls.length - 1;
             this.injectWorkspaceRefreshIfNeeded(
               conversation,
@@ -630,7 +586,6 @@ export class MessageHandlerService {
           agentError instanceof Error ? agentError.message : String(agentError),
       });
     } finally {
-      this.agentChangeLog = [];
       this.currentAbortController = null;
       cancellationTokenSource.dispose();
       signal.removeEventListener("abort", listener);
@@ -715,6 +670,11 @@ export class MessageHandlerService {
   /**
    * Execute ask mode directly against a VS Code language model. Streams tokens
    * to the chat UI similar to the backend implementation but without invoking workspace tools.
+   * @param selectedModel The VS Code language model to use for the request.
+   * @param composed The composed prompt containing user request and context.
+   * @param panel The webview panel to communicate back to.
+   * @param abortController Controller to allow cancellation of the request.
+   * @returns Promise that resolves when processing completes.
    */
   private async handleAskModeVSCode(
     selectedModel: vscode.LanguageModelChat,
@@ -724,6 +684,7 @@ export class MessageHandlerService {
   ): Promise<void> {
     console.log("[PayPilot] Starting Ask Mode via VS Code language model");
 
+    // Initialize conversation with the composed prompt containing user request and context
     const conversation: vscode.LanguageModelChatMessage[] = [
       vscode.LanguageModelChatMessage.User(composed),
     ];
@@ -738,6 +699,7 @@ export class MessageHandlerService {
 
     try {
       while (true) {
+        // Send request to VS Code language model with limited tool access for ask mode
         const response = await selectedModel.sendRequest(
           conversation,
           {
@@ -751,6 +713,7 @@ export class MessageHandlerService {
         const toolCalls: vscode.LanguageModelToolCallPart[] = [];
         const textParts: vscode.LanguageModelTextPart[] = [];
 
+        // Process streaming response, separating text and tool calls
         for await (const part of response.stream) {
           if (cancellationTokenSource.token.isCancellationRequested) {
             throw new Error("Request cancelled");
@@ -759,6 +722,7 @@ export class MessageHandlerService {
           if (part instanceof vscode.LanguageModelTextPart) {
             aggregatedResponse += part.value;
             textParts.push(part);
+            // Stream tokens directly to UI for real-time display
             panel.postMessage({ type: "chat:stream", token: part.value });
           } else if (part instanceof vscode.LanguageModelToolCallPart) {
             toolCalls.push(part);
@@ -769,11 +733,13 @@ export class MessageHandlerService {
           conversation.push(vscode.LanguageModelChatMessage.Assistant(textParts));
         }
 
+        // If no tool calls, conversation is complete
         if (toolCalls.length === 0) {
           panel.postMessage({ type: "chat:done", text: aggregatedResponse });
           break;
         }
 
+        // Execute limited tool calls (workspace context and file reading only)
         for (const call of toolCalls) {
           try {
             const resultPart = await this.invokeToolCall(call, panel);
@@ -842,45 +808,6 @@ export class MessageHandlerService {
     }
   }
 
-  private recordAgentChange(entry: string | undefined): void {
-    if (!entry) {
-      return;
-    }
-    if (!this.agentChangeLog.includes(entry)) {
-      this.agentChangeLog.push(entry);
-    }
-  }
-
-  private formatAgentChangeSummary(): string {
-    if (this.agentChangeLog.length === 0) {
-      return "";
-    }
-    const lines = this.agentChangeLog.map((entry) => `• ${entry}`);
-    return [`Summary of applied changes:`, ...lines].join("\n");
-  }
-
-  private extractPlanSteps(
-    textParts: vscode.LanguageModelTextPart[]
-  ): string[] {
-    const raw = textParts
-      .map((part) => part.value)
-      .join("")
-      .trim();
-    return this.parsePlanLines(raw);
-  }
-
-  private extractPlanFromToolResult(
-    resultPart: vscode.LanguageModelToolResultPart
-  ): string[] {
-    const raw = resultPart.content
-      .map((part) =>
-        part instanceof vscode.LanguageModelTextPart ? part.value : ""
-      )
-      .join("")
-      .trim();
-    return this.parsePlanLines(raw);
-  }
-
   private injectWorkspaceRefreshIfNeeded(
     conversation: vscode.LanguageModelChatMessage[],
     call: vscode.LanguageModelToolCallPart,
@@ -907,32 +834,6 @@ export class MessageHandlerService {
         "Workspace files have changed. Refresh the workspace context before continuing."
       )
     );
-  }
-
-  private parsePlanLines(raw: string): string[] {
-    if (!raw) {
-      return [];
-    }
-
-    const lines = raw
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    const steps = lines
-      .filter((line) => /^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i.test(line))
-      .map((line) =>
-        line.replace(/^(?:\d+[\).]|step\s*\d+:|[-*])\s+/i, "").trim()
-      );
-
-    if (steps.length > 0) {
-      return steps;
-    }
-
-    if (lines.length > 1 && raw.toLowerCase().includes("plan")) {
-      return lines;
-    }
-
-    return [];
   }
 
   private getAskModeTools(): vscode.LanguageModelChatTool[] {
@@ -1100,15 +1001,6 @@ export class MessageHandlerService {
       }
     }
 
-    if (
-      activity.operation === "directory" ||
-      activity.operation === "directory-delete"
-    ) {
-      const description = `${
-        activity.operation === "directory" ? "Created" : "Deleted"
-      } ${activity.detail ?? activity.title}`;
-      this.recordAgentChange(description);
-    }
   }
 
   private describeToolActivity(
@@ -1262,13 +1154,6 @@ export class MessageHandlerService {
         );
       }
 
-      this.recordAgentChange(
-        `${this.describeOperation(
-          context.operation,
-          context.uri.fsPath
-        )} (${relativeUriPath(context.uri)})`
-      );
-
       panel.postMessage({
         type: "chat:code-applied",
         fileName: path.basename(context.uri.fsPath),
@@ -1329,14 +1214,6 @@ export class MessageHandlerService {
       ),
       operation: context.operation,
     });
-
-    const relative = getRelativePath(context.uri);
-    this.recordAgentChange(
-      `${this.describeOperation(
-        context.operation,
-        context.uri.fsPath
-      )} (${relative})`
-    );
 
     // log tool result for transparency
     const resultText = result.content
@@ -1528,7 +1405,7 @@ export class MessageHandlerService {
     this.diffService.dispose();
     this.contextMessageService.clearAll();
     // this.mcpService.reset();
-    
+
     if (this.currentAbortController) {
       this.currentAbortController.abort();
       this.currentAbortController = null;
@@ -1552,10 +1429,10 @@ export class MessageHandlerService {
     toolArgs: any,
     context:
       | {
-          uri: vscode.Uri;
-          operation: FileOperation;
-          originalContent: string;
-        }
+        uri: vscode.Uri;
+        operation: FileOperation;
+        originalContent: string;
+      }
       | undefined,
     panel: vscode.Webview
   ): void {
@@ -1629,12 +1506,12 @@ export class MessageHandlerService {
     toolArgs: any
   ): Promise<
     | {
-        uri: vscode.Uri;
-        operation: FileOperation;
-        originalContent: string;
-        isDirectory?: boolean;
-        directorySnapshot?: string;
-      }
+      uri: vscode.Uri;
+      operation: FileOperation;
+      originalContent: string;
+      isDirectory?: boolean;
+      directorySnapshot?: string;
+    }
     | undefined
   > {
     // Create a mock call to reuse the existing prepareToolContext logic

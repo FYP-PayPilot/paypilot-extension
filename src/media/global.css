@@ -1417,36 +1417,46 @@ html, body, #root {
   height: 12px;
 }
 
-.code-applied-explanation {
-  color: var(--foreground);
-  opacity: 0.8;
-  font-size: 13px;
-  line-height: 1.4;
-}
-
-/* Working Indicator used while the assistant is busy */
-.working-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
+/* Thinking indicator bubble */
+.thinking-indicator {
+  border-radius: var(--radius-lg);
   padding: var(--space-md);
-  background: var(--panel-bg);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--panel-border);
+  background: var(--surface);
+  border: none;
+  box-shadow: none;
+  margin: var(--space-sm) 0;
+  width: fit-content;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--panel-border);
-  border-top-color: var(--vscode-focusBorder);
+.thinking-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  animation: spin 1s linear infinite;
+  background: var(--foreground);
+  animation: thinking-bounce 1.2s ease-in-out infinite;
+  opacity: 0.4;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
+.thinking-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinking-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes thinking-bounce {
+  0%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  50% {
+    transform: translateY(-4px);
+    opacity: 1;
   }
 }
 
@@ -1656,13 +1666,6 @@ html, body, #root {
   padding: 2px 6px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, currentColor 10%, transparent);
-}
-
-.tool-activity-detail {
-  color: var(--muted);
-  font-size: 12px;
-  font-family: var(--font-editor);
-  word-break: break-all;
 }
 
 /* ==========================================================================

@@ -153,6 +153,15 @@ export const useChat = (ragEnabled: boolean = false) => {
 
   }, []);
 
+  const findWorkingMessageIndex = useCallback((messages: ChatMessage[]) => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].isWorking) {
+        return index;
+      }
+    }
+    return -1;
+  }, []);
+
   // Auto-load models when extension starts
   useEffect(() => {
     postMessage({ type: 'model:list-request' });
@@ -186,13 +195,24 @@ export const useChat = (ragEnabled: boolean = false) => {
 
     // For agent mode, don't add the assistant message yet - wait for working message
     // For ask mode, add the thinking placeholder
-    const assistantMessage: ChatMessage | null = mode === 'ask' ? {
-      id: generateMessageId(),
-      content: 'Thinking...',           // Placeholder until first token arrives
-      role: 'assistant',
-      timestamp: Date.now(),
-      isStreaming: true                 // Enables real-time content updates
-    } : null;
+    let assistantMessage: ChatMessage | null = null;
+    if (mode === "ask") {
+      assistantMessage = {
+        id: generateMessageId(),
+        content: "Thinking...",
+        role: "assistant",
+        timestamp: Date.now(),
+        isStreaming: true,
+      };
+    } else {
+      assistantMessage = {
+        id: generateMessageId(),
+        content: "",
+        role: "assistant",
+        timestamp: Date.now(),
+        isThinking: true,
+      };
+    }
 
       // Update state with user message and optional assistant placeholder
       const newMessages = assistantMessage
@@ -465,14 +485,26 @@ export const useChat = (ragEnabled: boolean = false) => {
           // Add working message for agent mode
           setState(prev => {
             const messages = [...prev.messages];
-            const workingMessage: ChatMessage = {
-              id: generateMessageId(),
-              content: message.message,
-              role: 'assistant',
-              timestamp: Date.now(),
-              isWorking: true,
-            };
-            messages.push(workingMessage);
+            const lastMessage = messages[messages.length - 1];
+
+            if (lastMessage && lastMessage.isThinking) {
+              messages[messages.length - 1] = {
+                ...lastMessage,
+                content: message.message,
+                isThinking: false,
+                isStreaming: false,
+                isWorking: true,
+              };
+            } else {
+              const workingMessage: ChatMessage = {
+                id: generateMessageId(),
+                content: message.message,
+                role: "assistant",
+                timestamp: Date.now(),
+                isWorking: true,
+              };
+              messages.push(workingMessage);
+            }
             return { ...prev, messages, isLoading: true };
           });
           break;
@@ -481,43 +513,29 @@ export const useChat = (ragEnabled: boolean = false) => {
           // Handle code applied messages - create separate cards for each file
           setState(prev => {
             const messages = [...prev.messages];
-            const lastMessage = messages[messages.length - 1];
-            
-            if (lastMessage && lastMessage.isWorking) {
-              // Replace working message with first code applied card
-              messages[messages.length - 1] = {
-                ...lastMessage,
-                content: 'Code changes applied',
-                isWorking: false,
-                codeApplied: {
-                  fileName: message.fileName,
-                  filePath: message.filePath,
-                  linesAdded: message.linesAdded,
-                  linesDeleted: message.linesDeleted,
-                  explanation: message.explanation,
-                  operation: message.operation
-                }
-              };
+            const codeMessage: ChatMessage = {
+              id: generateMessageId(),
+              content: 'Code changes applied',
+              role: 'assistant',
+              timestamp: Date.now(),
+              codeApplied: {
+                fileName: message.fileName,
+                filePath: message.filePath,
+                linesAdded: message.linesAdded,
+                linesDeleted: message.linesDeleted,
+                explanation: message.explanation,
+                operation: message.operation
+              }
+            };
+
+            const workingIndex = findWorkingMessageIndex(messages);
+            if (workingIndex >= 0) {
+              messages.splice(workingIndex, 0, codeMessage);
             } else {
-              // Add additional code applied cards for subsequent files
-              const newMessage: ChatMessage = {
-                id: generateMessageId(),
-                content: 'Code changes applied',
-                role: 'assistant',
-                timestamp: Date.now(),
-                codeApplied: {
-                  fileName: message.fileName,
-                  filePath: message.filePath,
-                  linesAdded: message.linesAdded,
-                  linesDeleted: message.linesDeleted,
-                  explanation: message.explanation,
-                  operation: message.operation
-                }
-              };
-              messages.push(newMessage);
+              messages.push(codeMessage);
             }
             
-            return { ...prev, messages, isLoading: false };
+            return { ...prev, messages };
           });
           break;
 
@@ -609,8 +627,9 @@ export const useChat = (ragEnabled: boolean = false) => {
               },
             };
 
-            if (messages.length > 0 && messages[messages.length - 1].isWorking) {
-              messages[messages.length - 1] = activityMessage;
+            const workingIndex = findWorkingMessageIndex(messages);
+            if (workingIndex >= 0) {
+              messages.splice(workingIndex, 0, activityMessage);
             } else {
               const targetIndex = findActiveAssistantMessageIndex(messages);
               if (targetIndex >= 0) {
@@ -654,7 +673,7 @@ export const useChat = (ragEnabled: boolean = false) => {
         case 'chat:done':
           // Streaming complete - finalize message and clear loading state
           setState(prev => {
-            const messages = [...prev.messages];
+            let messages = [...prev.messages];
             const targetIndex = findActiveAssistantMessageIndex(messages);
 
             if (targetIndex >= 0) {
@@ -674,6 +693,8 @@ export const useChat = (ragEnabled: boolean = false) => {
               });
             }
 
+            messages = messages.filter((msg) => !msg.isWorking);
+
             return {
               ...prev,
               messages,
@@ -685,7 +706,7 @@ export const useChat = (ragEnabled: boolean = false) => {
         case 'chat:error':
           // Handle streaming or API errors
           setState(prev => {
-            const messages = [...prev.messages];
+            let messages = [...prev.messages];
             const targetIndex = findActiveAssistantMessageIndex(messages);
 
             if (targetIndex >= 0) {
@@ -707,6 +728,8 @@ export const useChat = (ragEnabled: boolean = false) => {
               });
             }
             
+            messages = messages.filter((msg) => !msg.isWorking);
+
             return {
               ...prev,
               messages,
@@ -717,10 +740,14 @@ export const useChat = (ragEnabled: boolean = false) => {
 
         case 'chat:stopped':
           // Confirm manual stop completed - clear loading state
-          setState(prev => ({
-            ...prev,
-            isLoading: false                             // Re-enable UI after stop
-          }));
+          setState(prev => {
+            const messages = prev.messages.filter((msg) => !msg.isWorking);
+            return {
+              ...prev,
+              messages,
+              isLoading: false,
+            };
+          });
           break;
 
         case 'model:list':
@@ -784,7 +811,7 @@ export const useChat = (ragEnabled: boolean = false) => {
     });
 
     return unsubscribe;                                  // Cleanup listener on unmount
-  }, [onMessage, generateMessageId, findActiveAssistantMessageIndex]);
+  }, [onMessage, generateMessageId, findActiveAssistantMessageIndex, findWorkingMessageIndex]);
 
   // Auto-save chat history when messages change (debounced and intelligent)
   useEffect(() => {

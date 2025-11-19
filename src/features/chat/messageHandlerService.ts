@@ -424,7 +424,7 @@ export class MessageHandlerService {
         // Backend agent is complete
         panel.postMessage({
           type: "chat:done",
-          text: finalText,
+          text: finalText.trim(),
         });
       }
 

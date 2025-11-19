@@ -8,7 +8,7 @@ import { ModelInfo } from '../features/language-model/types';
  */
 
 // Configuration - Production backend
-const FASTAPI_BASE_URL = 'http://127.0.0.1:8000';
+const FASTAPI_BASE_URL = 'http://209.38.58.134:8000';
 const TIMEOUT_MS = 30000;
 
 /**

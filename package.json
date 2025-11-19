@@ -77,7 +77,7 @@
         },
         "paypilot.agentServerUrl": {
           "type": "string",
-          "default": "ws://localhost:8000/ws/agent",
+          "default": "ws://209.38.58.134:8000/ws/agent",
           "description": "WebSocket URL for the PayPilot agent server"
         }
       }

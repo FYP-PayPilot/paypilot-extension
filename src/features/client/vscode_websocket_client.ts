@@ -492,7 +492,7 @@ export class AgentWebSocketClient {
   }
 
   /**
-   * Execute the actual tool operation (same as ToolExecutionServer)
+   * Execute the actual tool operation
    */
   private async executeToolLocally(
     toolName: string,
@@ -629,7 +629,7 @@ export class AgentWebSocketClient {
   }
 
   // ========================================================================
-  // TOOL IMPLEMENTATIONS (same as ToolExecutionServer)
+  // TOOL IMPLEMENTATIONS
   // ========================================================================
 
   private async getWorkspaceContext(args: {

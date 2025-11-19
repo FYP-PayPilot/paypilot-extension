@@ -419,7 +419,7 @@ export class MessageHandlerService {
         abortController
       );
 
-      const finalText = response.response + '\nmodel used: ' + response.model_used + '\tokens used: ' + response.stats.tokens_used;
+      const finalText = response.response + '\nmodel used: ' + response.model_used + '\ntokens used: ' + response.stats.tokens_used;
 
       // Backend agent is complete
       panel.postMessage({

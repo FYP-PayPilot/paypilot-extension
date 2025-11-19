@@ -677,10 +677,11 @@ export const useChat = (ragEnabled: boolean = false) => {
             const targetIndex = findActiveAssistantMessageIndex(messages);
 
             if (targetIndex >= 0) {
+              // Update existing message
               const lastMessage = messages[targetIndex];
               messages[targetIndex] = {
                 ...lastMessage,
-                content: message.text,                    // Final complete text
+                content: message.text,                        // Final complete text
                 isStreaming: false                        // Stop streaming updates
               };
             } else if (message.text) {
@@ -698,7 +699,7 @@ export const useChat = (ragEnabled: boolean = false) => {
             return {
               ...prev,
               messages,
-              isLoading: false                           // Re-enable input, hide loading
+              isLoading: false
             };
           });
           break;

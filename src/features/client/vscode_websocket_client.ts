@@ -46,7 +46,8 @@ type ServerMessage =
   | AgentResponse
   | StatusUpdate
   | ErrorMessage
-  | { type: "pong" };
+  | { type: "pong" }
+  | { type: "ping" };
 
 export class AgentWebSocketClient {
   private ws: WebSocket | null = null;
@@ -307,7 +308,14 @@ export class AgentWebSocketClient {
           break;
 
         case "pong":
-          // Keep-alive response
+          // Keep-alive response from backend
+          break;
+
+        case "ping":
+          // Respond to backend heartbeat
+          if (this.ws?.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ type: "pong" }));
+          }
           break;
 
         default:
@@ -343,7 +351,8 @@ export class AgentWebSocketClient {
   private async handleToolRequest(request: ToolRequest): Promise<void> {
     console.log(
       `[WebSocket] Tool request: ${request.tool_name}`,
-      request.tool_args
+      request.tool_args,
+      `request_id: ${request.request_id}`
     );
 
     let result: any = null;
@@ -354,7 +363,7 @@ export class AgentWebSocketClient {
       setTimeout(() => {
         if (!sent) {
           errorMessage = `Tool execution timeout for ${request.tool_name}`;
-          console.error(`[WebSocket] Tool execution timeout:`, request.tool_name);
+          console.error(`[WebSocket] Tool execution timeout:`, request.tool_name, `request_id: ${request.request_id}`);
           if (this.ws?.readyState === WebSocket.OPEN) {
             this.ws.send(
               JSON.stringify({
@@ -366,6 +375,7 @@ export class AgentWebSocketClient {
                 },
               })
             );
+            console.log(`[WebSocket] Sent tool_result (timeout) for ${request.tool_name}:`, errorMessage, `request_id: ${request.request_id}`);
             sent = true;
           }
         }
@@ -389,13 +399,18 @@ export class AgentWebSocketClient {
               result: result,
             })
           );
-          console.log(`[WebSocket] Sent tool_result for ${request.tool_name}:`, result);
+          console.log('Sent tool result from frontend AHHH: ', JSON.stringify({
+              type: "tool_result",
+              request_id: request.request_id,
+              result: result,
+            }))
+          console.log(`[WebSocket] Sent tool_result for ${request.tool_name}:`, result, `request_id: ${request.request_id}`);
           sent = true;
         }
       }
     } catch (error) {
       errorMessage = error instanceof Error ? error.message : String(error);
-      console.error(`[WebSocket] Tool execution error:`, error);
+      console.error(`[WebSocket] Tool execution error:`, error, `request_id: ${request.request_id}`);
       if (!sent && this.ws?.readyState === WebSocket.OPEN) {
         this.ws.send(
           JSON.stringify({
@@ -407,7 +422,7 @@ export class AgentWebSocketClient {
             },
           })
         );
-        console.log(`[WebSocket] Sent tool_result error for ${request.tool_name}:`, errorMessage);
+        console.log(`[WebSocket] Sent tool_result error for ${request.tool_name}:`, errorMessage, `request_id: ${request.request_id}`);
         sent = true;
       }
     }

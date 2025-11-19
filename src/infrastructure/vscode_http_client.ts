@@ -47,64 +47,6 @@ export async function getBackendModels(): Promise<ModelInfo[]> {
 }
 
 /**
- * Stream chat response from FastAPI server - Agent Mode (no UI streaming)
- * Collects full response before processing
- */
-export async function getChatAgent(
-  modelId: string,
-  userPrompt: string,
-  fileContext: string,
-  editorContext: string,
-  workspaceRoot?: string,
-  abortSignal?: AbortSignal
-): Promise<string> {
-  console.log(`[PayPilot] Using getChatAgent via FastAPI with model: ${modelId}`);
-  
-  try {
-    const controller = new AbortController();
-    
-    // Handle external abort signal
-    if (abortSignal?.aborted) {
-      throw new Error('Request was cancelled');
-    }
-    abortSignal?.addEventListener('abort', () => controller.abort());
-
-    const response = await fetch(`${FASTAPI_BASE_URL}/chat/agent`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model_id: modelId,
-        user_prompt: userPrompt,
-        file_context: fileContext,
-        editor_context: editorContext,
-        workspace_root: workspaceRoot ?? null
-      }),
-      signal: controller.signal
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`FastAPI server error: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-
-    const result = await response.json();
-    console.log(`[PayPilot] ✅ Agent mode complete via FastAPI - received ${result.response.length} characters`);
-    console.log(`[PayPilot] ✅ Agent mode complete via FastAPI - tokens used ${result.response.tokens_used}`);
-    
-    return result.response;
-    
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new Error('Request was cancelled');
-    }
-    console.error('[PayPilot] FastAPI agent request failed:', error);
-    throw error;
-  }
-}
-
-/**
  * Stream chat response from FastAPI server - Chat Mode (with UI streaming)
  * Streams tokens in real-time to the provided callback
  */

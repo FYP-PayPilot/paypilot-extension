@@ -3,7 +3,6 @@ import * as vscode from "vscode";
 import { DiffService } from "../diff/diffService";
 import {
   getBackendModels,
-  getChatAgent,
   streamChatUI,
 } from "../../infrastructure/vscode_http_client";
 import {

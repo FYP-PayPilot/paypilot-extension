@@ -2,7 +2,7 @@
   "name": "paypilot",
   "displayName": "PayPilot",
   "description": "AI-powered coding assistant with smart chat, instant code modifications, and PayPal integration expertise built right into VS Code",
-  "version": "0.0.4",
+  "version": "0.0.6",
   "publisher": "paypilot",
   "icon": "icon.png",
   "repository": {

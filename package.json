@@ -1,0 +1,208 @@
+{
+  "name": "paypilot",
+  "displayName": "PayPilot",
+  "description": "AI-powered coding assistant with smart chat, instant code modifications, and PayPal integration expertise built right into VS Code",
+  "version": "0.0.4",
+  "publisher": "paypilot",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FYP-PayPilot/paypilot-extension"
+  },
+  "engines": {
+    "vscode": "^1.103.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "ai",
+    "chat",
+    "assistant",
+    "copilot",
+    "paypal",
+    "payment",
+    "code generation",
+    "refactoring",
+    "claude",
+    "gpt",
+    "llm"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "paypilot.openChat",
+        "title": "PayPilot: Open Chat"
+      },
+      {
+        "command": "paypilot.openDiff",
+        "title": "PayPilot: View Diff"
+      },
+      {
+        "command": "paypilot.acceptAllChanges",
+        "title": "PayPilot: Accept All Changes"
+      },
+      {
+        "command": "paypilot.rejectAllChanges",
+        "title": "PayPilot: Reject All Changes"
+      },
+      {
+        "command": "paypilot.keepCurrentFile",
+        "title": "PayPilot: Keep Current File"
+      },
+      {
+        "command": "paypilot.undoCurrentFile",
+        "title": "PayPilot: Undo Current File"
+      },
+      {
+        "command": "paypilot.toggleCurrentDiff",
+        "title": "PayPilot: Toggle Diff View"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "PayPilot",
+      "properties": {
+        "paypilot.maxContextChars": {
+          "type": "number",
+          "default": 12000,
+          "description": "Maximum characters of editor content to include as context"
+        },
+        "paypilot.useBackendAgent": {
+          "type": "boolean",
+          "default": true
+        },
+        "paypilot.agentServerUrl": {
+          "type": "string",
+          "default": "ws://209.38.58.134:8000/ws/agent",
+          "description": "WebSocket URL for the PayPilot agent server"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "paypilotSidebar",
+          "title": "PayPilot",
+          "icon": "$(credit-card)"
+        }
+      ]
+    },
+    "views": {
+      "paypilotSidebar": [
+        {
+          "id": "paypilotChatView",
+          "name": "Chat",
+          "type": "webview",
+          "icon": "$(credit-card)"
+        }
+      ]
+    },
+    "languageModelTools": [
+      {
+        "name": "paypilot-workspaceContext",
+        "displayName": "PayPilot Workspace Context",
+        "modelDescription": "Discover files and analyze workspace structure using glob patterns - perfect for iterative file discovery",
+        "tags": [
+          "workspace",
+          "discover",
+          "analyze"
+        ]
+      },
+      {
+        "name": "paypilot-createFile",
+        "displayName": "PayPilot Create File",
+        "modelDescription": "Create a new file in the workspace with specified contents",
+        "tags": [
+          "workspace",
+          "create",
+          "write"
+        ]
+      },
+      {
+        "name": "paypilot-readFile",
+        "displayName": "PayPilot Read File",
+        "modelDescription": "Read the complete contents of a workspace file",
+        "tags": [
+          "workspace",
+          "read",
+          "content"
+        ]
+      },
+      {
+        "name": "paypilot-updateFile",
+        "displayName": "PayPilot Update File",
+        "modelDescription": "Update/replace the contents of an existing workspace file",
+        "tags": [
+          "workspace",
+          "update",
+          "modify"
+        ]
+      },
+      {
+        "name": "paypilot-deleteFile",
+        "displayName": "PayPilot Delete File",
+        "modelDescription": "Delete a file from the workspace",
+        "tags": [
+          "workspace",
+          "delete",
+          "remove"
+        ]
+      },
+      {
+        "name": "paypilot-createDirectory",
+        "displayName": "PayPilot Create Directory",
+        "modelDescription": "Create a directory in the workspace",
+        "tags": [
+          "workspace",
+          "create",
+          "directory"
+        ]
+      },
+      {
+        "name": "paypilot-deleteDirectory",
+        "displayName": "PayPilot Delete Directory",
+        "modelDescription": "Delete a directory from the workspace",
+        "tags": [
+          "workspace",
+          "delete",
+          "directory"
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "node esbuild.js --production",
+    "build": "node esbuild.js",
+    "watch:esbuild": "node esbuild.js --watch",
+    "watch:tsc": "tsc -watch -p ./",
+    "compile": "tsc -p ./",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "check-updates": "npm outdated",
+    "audit-security": "npm audit",
+    "update-patch": "npm update",
+    "test-build": "npm run build && npm run lint"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@types/vscode": "^1.103.0",
+    "@types/ws": "^8.18.1",
+    "@typescript-eslint/eslint-plugin": "^8.5.0",
+    "@typescript-eslint/parser": "^8.5.0",
+    "esbuild": "^0.25.9",
+    "eslint": "^9.10.0",
+    "typescript": "^5.6.2"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-icons": "^5.5.0",
+    "ws": "^8.18.3"
+  }
+}
